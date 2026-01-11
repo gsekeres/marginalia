@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LitVault - Literature Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen" x-data="app()" x-init="init()">
+    <!-- Header -->
+    <header class="bg-white shadow">
+        <div class="max-w-7xl mx-auto px-4 py-6">
+            <div class="flex justify-between items-center">
+                <h1 class="text-3xl font-bold text-gray-900">LitVault</h1>
+                <div class="flex gap-4">
+                    <button @click="refreshStats()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                        Refresh
+                    </button>
+                    <label class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer">
+                        Import BibTeX
+                        <input type="file" accept=".bib" @change="importBibtex($event)" class="hidden">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            <template x-for="(count, status) in stats.by_status" :key="status">
+                <div class="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg transition"
+                     @click="filterByStatus(status)"
+                     :class="{ 'ring-2 ring-blue-500': currentFilter === status }">
+                    <div class="text-2xl font-bold" x-text="count"></div>
+                    <div class="text-gray-500 capitalize" x-text="status"></div>
+                </div>
+            </template>
+        </div>
+
+        <!-- Search and Actions -->
+        <div class="bg-white rounded-lg shadow p-4 mb-8">
+            <div class="flex flex-wrap gap-4 items-center">
+                <input type="text"
+                       x-model="searchQuery"
+                       @keyup.enter="searchPapers()"
+                       placeholder="Search papers..."
+                       class="flex-1 min-w-64 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button @click="searchPapers()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                    Search
+                </button>
+                <button @click="clearFilter()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                    Clear
+                </button>
+                <div class="border-l pl-4 flex gap-2">
+                    <button @click="markSelectedWanted()"
+                            :disabled="selectedPapers.length === 0"
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
+                        Mark Wanted (<span x-text="selectedPapers.length"></span>)
+                    </button>
+                    <button @click="findPDFs()" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
+                        Find PDFs
+                    </button>
+                    <button @click="summarizePapers()" class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">
+                        Summarize
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Job Status -->
+        <template x-if="Object.keys(jobs).length > 0">
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
+                <h3 class="font-bold text-yellow-800 mb-2">Active Jobs</h3>
+                <template x-for="(job, jobId) in jobs" :key="jobId">
+                    <div class="flex items-center gap-4 py-2">
+                        <span class="text-sm font-mono" x-text="jobId"></span>
+                        <div class="flex-1 bg-yellow-200 rounded-full h-2">
+                            <div class="bg-yellow-600 h-2 rounded-full transition-all"
+                                 :style="`width: ${(job.completed / job.total) * 100}%`"></div>
+                        </div>
+                        <span class="text-sm" x-text="`${job.completed}/${job.total} (${job.success} success)`"></span>
+                        <span class="text-xs px-2 py-1 rounded"
+                              :class="job.status === 'completed' ? 'bg-green-200' : 'bg-yellow-200'"
+                              x-text="job.status"></span>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <!-- Manual Download Queue Alert -->
+        <template x-if="manualQueue.length > 0">
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-red-800">Manual Downloads Needed</h3>
+                    <button @click="showManualQueue = !showManualQueue" class="text-red-600 hover:underline">
+                        <span x-text="showManualQueue ? 'Hide' : `Show (${manualQueue.length})`"></span>
+                    </button>
+                </div>
+                <div x-show="showManualQueue" x-cloak class="space-y-4">
+                    <template x-for="paper in manualQueue" :key="paper.citekey">
+                        <div class="bg-white p-4 rounded border">
+                            <div class="font-medium" x-text="paper.title"></div>
+                            <div class="text-sm text-gray-500" x-text="`${paper.authors?.join(', ')} (${paper.year})`"></div>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <template x-for="link in paper.search_links?.slice(0, 3)" :key="link">
+                                    <a :href="link" target="_blank" class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                        Search
+                                    </a>
+                                </template>
+                                <label class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 cursor-pointer">
+                                    Upload PDF
+                                    <input type="file" accept=".pdf" @change="uploadPDF(paper.citekey, $event)" class="hidden">
+                                </label>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+        <!-- Papers Table -->
+        <div class="bg-white rounded-lg shadow overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 w-8">
+                            <input type="checkbox" @change="toggleSelectAll($event)">
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Paper</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-24">Year</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">Status</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-40">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                    <template x-for="paper in papers" :key="paper.citekey">
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3">
+                                <input type="checkbox"
+                                       :value="paper.citekey"
+                                       x-model="selectedPapers"
+                                       :disabled="paper.status !== 'discovered'">
+                            </td>
+                            <td class="px-4 py-3">
+                                <div class="font-medium text-gray-900" x-text="paper.title"></div>
+                                <div class="text-sm text-gray-500" x-text="paper.authors?.join(', ')"></div>
+                                <div class="text-xs text-gray-400" x-text="paper.citekey"></div>
+                            </td>
+                            <td class="px-4 py-3 text-sm" x-text="paper.year || '?'"></td>
+                            <td class="px-4 py-3">
+                                <span class="px-2 py-1 text-xs rounded-full"
+                                      :class="{
+                                          'bg-gray-100 text-gray-700': paper.status === 'discovered',
+                                          'bg-blue-100 text-blue-700': paper.status === 'wanted',
+                                          'bg-yellow-100 text-yellow-700': paper.status === 'queued',
+                                          'bg-green-100 text-green-700': paper.status === 'downloaded',
+                                          'bg-purple-100 text-purple-700': paper.status === 'summarized',
+                                          'bg-red-100 text-red-700': paper.status === 'failed',
+                                      }"
+                                      x-text="paper.status"></span>
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                <div class="flex gap-2">
+                                    <template x-if="paper.pdf_path">
+                                        <a :href="`/api/papers/${paper.citekey}/pdf`" target="_blank"
+                                           class="text-blue-600 hover:underline">PDF</a>
+                                    </template>
+                                    <template x-if="paper.status === 'summarized'">
+                                        <button @click="viewSummary(paper.citekey)"
+                                                class="text-purple-600 hover:underline">Summary</button>
+                                    </template>
+                                    <template x-if="paper.status === 'discovered'">
+                                        <button @click="wantPaper(paper.citekey)"
+                                                class="text-green-600 hover:underline">Want</button>
+                                    </template>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+
+            <!-- Pagination -->
+            <div class="px-4 py-3 bg-gray-50 flex justify-between items-center">
+                <div class="text-sm text-gray-500">
+                    Showing <span x-text="papers.length"></span> of <span x-text="totalPapers"></span> papers
+                </div>
+                <div class="flex gap-2">
+                    <button @click="prevPage()" :disabled="offset === 0"
+                            class="px-3 py-1 bg-white border rounded disabled:opacity-50">Previous</button>
+                    <button @click="nextPage()" :disabled="offset + 100 >= totalPapers"
+                            class="px-3 py-1 bg-white border rounded disabled:opacity-50">Next</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Summary Modal -->
+    <div x-show="showSummary" x-cloak
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+         @click.self="showSummary = false">
+        <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h2 class="text-xl font-bold">Summary</h2>
+                <button @click="showSummary = false" class="text-gray-500 hover:text-gray-700">&times;</button>
+            </div>
+            <div class="p-4 overflow-y-auto max-h-[calc(80vh-60px)]">
+                <pre class="whitespace-pre-wrap font-sans text-sm" x-text="summaryContent"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                stats: { by_status: {} },
+                papers: [],
+                totalPapers: 0,
+                offset: 0,
+                searchQuery: '',
+                currentFilter: null,
+                selectedPapers: [],
+                jobs: {},
+                manualQueue: [],
+                showManualQueue: false,
+                showSummary: false,
+                summaryContent: '',
+                jobPollInterval: null,
+
+                async init() {
+                    await this.refreshStats();
+                    await this.loadPapers();
+                    await this.loadManualQueue();
+                    this.startJobPolling();
+                },
+
+                async refreshStats() {
+                    const res = await fetch('/api/stats');
+                    this.stats = await res.json();
+                },
+
+                async loadPapers() {
+                    let url = `/api/papers?limit=100&offset=${this.offset}`;
+                    if (this.currentFilter) url += `&status=${this.currentFilter}`;
+                    if (this.searchQuery) url += `&search=${encodeURIComponent(this.searchQuery)}`;
+
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    this.papers = data.papers;
+                    this.totalPapers = data.total;
+                },
+
+                async loadManualQueue() {
+                    const res = await fetch('/api/manual-queue');
+                    const data = await res.json();
+                    this.manualQueue = data.papers;
+                },
+
+                filterByStatus(status) {
+                    this.currentFilter = this.currentFilter === status ? null : status;
+                    this.offset = 0;
+                    this.loadPapers();
+                },
+
+                clearFilter() {
+                    this.currentFilter = null;
+                    this.searchQuery = '';
+                    this.offset = 0;
+                    this.loadPapers();
+                },
+
+                searchPapers() {
+                    this.currentFilter = null;
+                    this.offset = 0;
+                    this.loadPapers();
+                },
+
+                prevPage() {
+                    this.offset = Math.max(0, this.offset - 100);
+                    this.loadPapers();
+                },
+
+                nextPage() {
+                    this.offset += 100;
+                    this.loadPapers();
+                },
+
+                toggleSelectAll(event) {
+                    if (event.target.checked) {
+                        this.selectedPapers = this.papers
+                            .filter(p => p.status === 'discovered')
+                            .map(p => p.citekey);
+                    } else {
+                        this.selectedPapers = [];
+                    }
+                },
+
+                async wantPaper(citekey) {
+                    await fetch(`/api/papers/${citekey}/want`, { method: 'POST' });
+                    await this.refreshStats();
+                    await this.loadPapers();
+                },
+
+                async markSelectedWanted() {
+                    await fetch('/api/papers/mark-wanted', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ citekeys: this.selectedPapers })
+                    });
+                    this.selectedPapers = [];
+                    await this.refreshStats();
+                    await this.loadPapers();
+                },
+
+                async findPDFs() {
+                    const res = await fetch('/api/find-pdfs', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.job_id) {
+                        this.jobs[data.job_id] = { status: 'running', total: data.total, completed: 0, success: 0 };
+                    }
+                },
+
+                async summarizePapers() {
+                    const res = await fetch('/api/summarize', { method: 'POST' });
+                    const data = await res.json();
+                    if (data.job_id) {
+                        this.jobs[data.job_id] = { status: 'running', total: data.total, completed: 0, success: 0 };
+                    }
+                },
+
+                startJobPolling() {
+                    this.jobPollInterval = setInterval(async () => {
+                        const res = await fetch('/api/jobs');
+                        this.jobs = await res.json();
+
+                        // Check if any jobs completed
+                        const hasCompleted = Object.values(this.jobs).some(j => j.status === 'completed');
+                        if (hasCompleted) {
+                            await this.refreshStats();
+                            await this.loadPapers();
+                            await this.loadManualQueue();
+                        }
+                    }, 2000);
+                },
+
+                async uploadPDF(citekey, event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    await fetch(`/api/papers/${citekey}/upload-pdf`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    await this.refreshStats();
+                    await this.loadPapers();
+                    await this.loadManualQueue();
+                },
+
+                async viewSummary(citekey) {
+                    const res = await fetch(`/api/papers/${citekey}/summary`);
+                    const data = await res.json();
+                    this.summaryContent = data.content;
+                    this.showSummary = true;
+                },
+
+                async importBibtex(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const res = await fetch('/api/import-bibtex', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    alert(`Imported ${data.added} papers`);
+
+                    await this.refreshStats();
+                    await this.loadPapers();
+                }
+            };
+        }
+    </script>
+</body>
+</html>
