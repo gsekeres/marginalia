@@ -72,6 +72,21 @@ class AddRelatedPaperRequest(BaseModel):
     source_citekey: str  # Paper this was related to
 
 
+class SyncRequest(BaseModel):
+    folder_path: str
+    include_pdfs: bool = True
+    include_summaries: bool = True
+    include_bibtex: bool = True
+
+
+class SetSourcePathRequest(BaseModel):
+    source_path: str
+
+
+class BrowseRequest(BaseModel):
+    path: Optional[str] = None
+
+
 def normalize_title(title: str) -> str:
     """Normalize a title for comparison."""
     import re
@@ -435,7 +450,86 @@ async def import_bibtex_from_path(request: ImportPathRequest):
         raise HTTPException(status_code=400, detail="File must be a .bib file")
 
     added = vault.import_bibtex(path)
-    return {"added": added}
+
+    # Store the source path for sync defaults
+    vault.index.source_bib_path = str(path.resolve())
+    vault.save_index()
+
+    return {"added": added, "source_path": str(path.resolve())}
+
+
+@app.get("/api/config")
+async def get_config():
+    """Get configuration including default sync path."""
+    source_path = vault.index.source_bib_path
+    default_sync_path = None
+
+    if source_path:
+        # Use the parent directory of the .bib file as default sync path
+        default_sync_path = str(Path(source_path).parent)
+
+    return {
+        "source_bib_path": source_path,
+        "default_sync_path": default_sync_path,
+    }
+
+
+@app.post("/api/config/source-path")
+async def set_source_path(request: SetSourcePathRequest):
+    """Set the source .bib file path."""
+    path = Path(request.source_path).expanduser()
+    vault.index.source_bib_path = str(path.resolve()) if path.exists() else str(path)
+    vault.save_index()
+    return {"source_bib_path": vault.index.source_bib_path}
+
+
+@app.post("/api/browse")
+async def browse_directory(request: BrowseRequest):
+    """Browse filesystem directories for folder selection."""
+    import os
+
+    # Start from home or provided path
+    if request.path:
+        base_path = Path(request.path).expanduser()
+    else:
+        base_path = Path.home()
+
+    if not base_path.exists():
+        base_path = Path.home()
+
+    # Get parent path
+    parent = str(base_path.parent) if base_path.parent != base_path else None
+
+    # List directories only
+    directories = []
+    try:
+        for entry in sorted(base_path.iterdir()):
+            if entry.is_dir() and not entry.name.startswith('.'):
+                directories.append({
+                    "name": entry.name,
+                    "path": str(entry),
+                })
+    except PermissionError:
+        pass
+
+    # Also list .bib files for source selection
+    bib_files = []
+    try:
+        for entry in sorted(base_path.iterdir()):
+            if entry.is_file() and entry.suffix == '.bib':
+                bib_files.append({
+                    "name": entry.name,
+                    "path": str(entry),
+                })
+    except PermissionError:
+        pass
+
+    return {
+        "current": str(base_path),
+        "parent": parent,
+        "directories": directories,
+        "bib_files": bib_files,
+    }
 
 
 @app.post("/api/generate-index")
@@ -443,6 +537,82 @@ async def generate_index():
     """Generate the Obsidian index page."""
     index_path = vault.generate_index_page()
     return {"path": str(index_path)}
+
+
+@app.post("/api/sync")
+async def sync_to_folder(request: SyncRequest):
+    """Sync vault contents to a local folder.
+
+    Structure:
+    - folder/papers/{citekey}/paper.pdf
+    - folder/papers/{citekey}/summary.md
+    - folder/references.bib
+    """
+    import shutil
+
+    folder = Path(request.folder_path).expanduser()
+    if not folder.exists():
+        folder.mkdir(parents=True, exist_ok=True)
+
+    papers_folder = folder / "papers"
+    papers_folder.mkdir(exist_ok=True)
+
+    results = {
+        "folder": str(folder),
+        "pdfs_copied": 0,
+        "summaries_copied": 0,
+        "bibtex_exported": False,
+    }
+
+    # Copy PDFs and summaries into papers/{citekey}/ folders
+    for paper in vault.index.papers.values():
+        paper_dir = papers_folder / paper.citekey
+        has_content = False
+
+        # Copy PDF
+        if request.include_pdfs and paper.pdf_path:
+            src_path = vault.vault_path / paper.pdf_path
+            if src_path.exists():
+                paper_dir.mkdir(exist_ok=True)
+                dest_path = paper_dir / "paper.pdf"
+                shutil.copy2(src_path, dest_path)
+                results["pdfs_copied"] += 1
+                has_content = True
+
+        # Copy summary
+        if request.include_summaries:
+            if paper.summary_path or paper.status == PaperStatus.SUMMARIZED:
+                summary_path = vault.vault_path / "papers" / paper.citekey / "summary.md"
+                if summary_path.exists():
+                    paper_dir.mkdir(exist_ok=True)
+                    dest_path = paper_dir / "summary.md"
+                    shutil.copy2(summary_path, dest_path)
+                    results["summaries_copied"] += 1
+                    has_content = True
+
+    # Export BibTeX
+    if request.include_bibtex:
+        bibtex_path = folder / "references.bib"
+        vault.export_bibtex(bibtex_path)
+        results["bibtex_exported"] = True
+        results["bibtex_path"] = str(bibtex_path)
+
+    return results
+
+
+@app.get("/api/export-bibtex")
+async def export_bibtex_api():
+    """Export all papers as BibTeX."""
+    bibtex_content = ""
+    for paper in vault.index.papers.values():
+        bibtex_content += paper.to_bibtex() + "\n\n"
+
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(
+        content=bibtex_content,
+        media_type="text/plain",
+        headers={"Content-Disposition": "attachment; filename=references.bib"}
+    )
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8000):

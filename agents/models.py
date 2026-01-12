@@ -114,6 +114,7 @@ class VaultIndex(BaseModel):
     """Index of all papers in the vault."""
     papers: dict[str, Paper] = Field(default_factory=dict)  # citekey -> Paper
     last_updated: datetime = Field(default_factory=datetime.now)
+    source_bib_path: Optional[str] = None  # Path to the original .bib file
 
     def add_paper(self, paper: Paper) -> None:
         """Add or update a paper in the index."""

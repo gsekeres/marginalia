@@ -4,431 +4,1452 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Marginalia - Literature Management</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+
+    <!-- Tailwind (for utilities only) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <style>
+        /* Design Tokens */
+        :root {
+            /* Paper & Ink palette */
+            --bg: #FBF7EF;
+            --surface: #F4EEE3;
+            --surface-hover: #EDE5D6;
+            --border: #E6DDCF;
+            --border-strong: #D4C9B8;
+
+            /* Text hierarchy */
+            --text: #1F2328;
+            --text-muted: #57606A;
+            --text-subtle: #8B949E;
+
+            /* Accent colors */
+            --accent: #22324A;
+            --accent-hover: #2D4263;
+            --accent-muted: #8B3A3A;
+
+            /* Status colors (muted, scholarly) */
+            --status-discovered: #8B949E;
+            --status-wanted: #3B5998;
+            --status-queued: #B08D57;
+            --status-downloaded: #2D6A4F;
+            --status-summarized: #5B4B8A;
+            --status-failed: #9B2C2C;
+
+            /* Spacing scale */
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-6: 24px;
+            --space-8: 32px;
+
+            /* Typography */
+            --font-ui: 'Inter', -apple-system, sans-serif;
+            --font-reading: 'Source Serif 4', Georgia, serif;
+            --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+        }
+
         [x-cloak] { display: none !important; }
+
+        /* Base styles */
+        body {
+            font-family: var(--font-ui);
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* Typography classes */
+        .font-ui { font-family: var(--font-ui); }
+        .font-reading { font-family: var(--font-reading); }
+        .font-mono { font-family: var(--font-mono); }
+
+        .h1 {
+            font-family: var(--font-reading);
+            font-size: 1.75rem;
+            font-weight: 600;
+            line-height: 1.3;
+            color: var(--text);
+        }
+        .h2 {
+            font-family: var(--font-ui);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+        .h3 {
+            font-family: var(--font-ui);
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        /* Layout */
+        .app-shell {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            padding: var(--space-6);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-family: var(--font-reading);
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .sidebar-nav {
+            padding: var(--space-4);
+            flex: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            border-radius: 6px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            margin-bottom: var(--space-1);
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+
+        .nav-item:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .nav-item.active {
+            background: var(--bg);
+            color: var(--text);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .nav-icon {
+            width: 18px;
+            height: 18px;
+            color: inherit;
+            flex-shrink: 0;
+        }
+
+        .nav-count {
+            margin-left: auto;
+            font-size: 0.75rem;
+            background: var(--bg);
+            padding: 2px 8px;
+            border-radius: 10px;
+            color: var(--text-muted);
+        }
+
+        .sidebar-section {
+            padding: var(--space-4);
+            border-top: 1px solid var(--border);
+        }
+
+        .sidebar-footer {
+            padding: var(--space-4);
+            border-top: 1px solid var(--border);
+        }
+
+        /* Main area */
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            margin-left: 220px; /* Account for fixed sidebar */
+        }
+
+        /* Topbar */
+        .topbar {
+            display: flex;
+            align-items: center;
+            padding: var(--space-4) var(--space-6);
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            gap: var(--space-4);
+        }
+
+        .topbar-left {
+            min-width: 120px;
+        }
+
+        .topbar-center {
+            flex: 1;
+            max-width: 480px;
+        }
+
+        .topbar-right {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+        }
+
+        .search-box {
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: var(--space-2) var(--space-4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            font-size: 0.9375rem;
+            color: var(--text);
+            transition: all 0.15s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(34, 50, 74, 0.1);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-subtle);
+        }
+
+        /* Content area */
+        .content {
+            flex: 1;
+            padding: var(--space-6);
+            overflow-y: auto;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            padding: var(--space-2) var(--space-4);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            padding: var(--space-2) var(--space-4);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-secondary:hover {
+            background: var(--surface-hover);
+            border-color: var(--border-strong);
+        }
+
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.15s ease;
+        }
+
+        .btn-icon:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .btn-text {
+            background: none;
+            border: none;
+            color: var(--accent);
+            padding: var(--space-1) var(--space-2);
+            font-size: 0.875rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .btn-text:hover {
+            text-decoration: underline;
+        }
+
+        .link-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 0.875rem;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .link-btn:hover {
+            text-decoration: underline;
+        }
+
+        /* Status badges */
+        .status-badge {
+            font-family: var(--font-ui);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            padding: 3px 10px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            display: inline-block;
+        }
+
+        .status-badge.discovered { background: #F0EDE8; color: var(--status-discovered); border: 1px solid #E0DBD3; }
+        .status-badge.downloaded { background: #E8F4EE; color: var(--status-downloaded); border: 1px solid #C8E4D8; }
+        .status-badge.summarized { background: #F0EBF8; color: var(--status-summarized); border: 1px solid #DCD4EC; }
+
+        /* Status dot */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.discovered { background: var(--status-discovered); }
+        .status-dot.downloaded { background: var(--status-downloaded); }
+        .status-dot.summarized { background: var(--status-summarized); }
+
+        /* Cards */
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .stat-card {
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-strong);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .stat-card.active {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(34, 50, 74, 0.1);
+        }
+
+        .stat-value {
+            font-family: var(--font-reading);
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: capitalize;
+        }
+
+        /* Papers table */
+        .papers-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .papers-table th {
+            text-align: left;
+            padding: var(--space-3) var(--space-4);
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .papers-table td {
+            padding: var(--space-3) var(--space-4);
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+
+        .paper-row {
+            cursor: pointer;
+            transition: background 0.1s ease;
+        }
+
+        .paper-row:hover {
+            background: var(--surface);
+        }
+
+        .paper-row:hover .paper-row-actions {
+            opacity: 1;
+        }
+
+        .paper-title {
+            font-family: var(--font-reading);
+            font-size: 0.9375rem;
+            font-weight: 500;
+            color: var(--text);
+            line-height: 1.4;
+        }
+
+        .paper-authors {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .paper-citekey {
+            font-family: var(--font-mono);
+            font-size: 0.6875rem;
+            color: var(--text-subtle);
+            margin-top: 2px;
+        }
+
+        .paper-row-actions {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .paper-row-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: var(--space-1);
+            color: var(--text-muted);
+            border-radius: 4px;
+        }
+
+        .paper-row-actions button:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        /* Paper detail view */
+        .paper-detail {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .paper-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-4) var(--space-6);
+            border-bottom: 1px solid var(--border);
+            background: #fff;
+        }
+
+        .paper-detail-actions {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+        }
+
+        .paper-detail-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .paper-margin {
+            width: 200px;
+            padding: var(--space-6);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .margin-section {
+            margin-bottom: var(--space-6);
+        }
+
+        .margin-label {
+            display: block;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: var(--space-1);
+        }
+
+        .margin-value {
+            font-size: 0.875rem;
+            color: var(--text);
+        }
+
+        .margin-link {
+            font-size: 0.8125rem;
+            color: var(--accent);
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .margin-link:hover {
+            text-decoration: underline;
+        }
+
+        .paper-main {
+            flex: 1;
+            padding: var(--space-8);
+            overflow-y: auto;
+            max-width: 800px;
+        }
+
+        .paper-authors-full {
+            font-size: 1rem;
+            color: var(--text-muted);
+            margin-top: var(--space-2);
+            margin-bottom: var(--space-6);
+        }
+
+        .paper-section {
+            margin-bottom: var(--space-8);
+        }
+
+        .paper-section .h2 {
+            margin-bottom: var(--space-3);
+        }
+
+        .body-reading {
+            font-family: var(--font-reading);
+            font-size: 1rem;
+            line-height: 1.7;
+            color: var(--text);
+        }
+
+        /* Markdown content styles */
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+            font-family: var(--font-ui);
+            font-weight: 600;
+            margin-top: var(--space-6);
+            margin-bottom: var(--space-3);
+            color: var(--text);
+        }
+        .markdown-body h2 { font-size: 1.125rem; }
+        .markdown-body h3 { font-size: 1rem; }
+        .markdown-body p { margin-bottom: var(--space-4); }
+        .markdown-body ul, .markdown-body ol {
+            margin-bottom: var(--space-4);
+            padding-left: var(--space-6);
+        }
+        .markdown-body li { margin-bottom: var(--space-2); }
+        .markdown-body strong { font-weight: 600; }
+        .markdown-body em { font-style: italic; }
+        .markdown-body code {
+            font-family: var(--font-mono);
+            font-size: 0.875em;
+            background: var(--surface);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .markdown-body pre {
+            background: var(--surface);
+            padding: var(--space-4);
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: var(--space-4);
+        }
+        .markdown-body pre code {
+            background: none;
+            padding: 0;
+        }
+        .markdown-body blockquote {
+            border-left: 3px solid var(--border-strong);
+            padding-left: var(--space-4);
+            color: var(--text-muted);
+            font-style: italic;
+            margin-bottom: var(--space-4);
+        }
+        .markdown-body hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: var(--space-6) 0;
+        }
+
+        /* Citation block */
+        .citation-block {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: var(--space-4);
+            margin-bottom: var(--space-6);
+        }
+
+        .citation-block-header {
+            font-family: var(--font-ui);
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: var(--space-2);
+        }
+
+        .citation-block pre {
+            font-family: var(--font-mono);
+            font-size: 0.8125rem;
+            line-height: 1.5;
+            margin: 0;
+            white-space: pre;
+            overflow-x: auto;
+        }
+
+        /* Related papers */
+        .related-paper-card {
+            padding: var(--space-4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: var(--space-3);
+            background: #fff;
+        }
+
+        .related-paper-title {
+            font-family: var(--font-reading);
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .related-paper-meta {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .related-paper-reason {
+            font-size: 0.875rem;
+            font-style: italic;
+            color: var(--text-muted);
+            margin-top: var(--space-2);
+        }
+
+        .related-paper-actions {
+            margin-top: var(--space-3);
+        }
+
+        /* Queue view */
+        .queue-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: var(--space-4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #fff;
+            margin-bottom: var(--space-3);
+        }
+
+        .queue-card-main {
+            flex: 1;
+        }
+
+        .queue-card-actions {
+            display: flex;
+            gap: var(--space-2);
+            flex-shrink: 0;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: var(--space-4);
+            border-radius: 6px;
+            margin-bottom: var(--space-4);
+        }
+
+        .alert-success {
+            background: #E8F4EE;
+            border: 1px solid #C8E4D8;
+            color: var(--status-downloaded);
+        }
+
+        .alert-error {
+            background: #FAEBEB;
+            border: 1px solid #F0D4D4;
+            color: var(--status-failed);
+        }
+
+        .alert-info {
+            background: #EBF0F8;
+            border: 1px solid #D4DEF0;
+            color: var(--status-wanted);
+        }
+
+        .alert-warning {
+            background: #F8F3E8;
+            border: 1px solid #E8DFC8;
+            color: var(--status-queued);
+        }
+
+        /* Job progress */
+        .job-progress {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-2) 0;
+        }
+
+        .job-progress-bar {
+            flex: 1;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .job-progress-fill {
+            height: 100%;
+            background: var(--status-queued);
+            transition: width 0.3s ease;
+        }
+
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: var(--space-6);
+        }
+
+        .modal {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            max-width: 500px;
+            width: 100%;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-4) var(--space-6);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-body {
+            padding: var(--space-6);
+            overflow-y: auto;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-4);
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+        }
+
+        .pagination-info {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        /* Actions bar */
+        .actions-bar {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+            padding: var(--space-3) var(--space-4);
+            background: var(--surface);
+            border-radius: 6px;
+            margin-bottom: var(--space-4);
+        }
+
+        .actions-bar-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+        }
+
+        /* Checkbox styling */
+        input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        /* View header */
+        .view-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-4);
+        }
+
+        /* Manual queue link */
+        .search-link {
+            font-size: 0.75rem;
+            padding: var(--space-1) var(--space-2);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .search-link:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        /* Browse modal */
+        .browse-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: var(--space-4);
+        }
+
+        .browse-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-3);
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+        }
+
+        .browse-item:last-child {
+            border-bottom: none;
+        }
+
+        .browse-item:hover {
+            background: var(--surface);
+        }
+
+        .browse-item.parent {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .browse-item .icon {
+            width: 16px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .browse-current {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: var(--space-2) var(--space-3);
+            background: var(--surface);
+            border-radius: 4px;
+            margin-bottom: var(--space-3);
+            word-break: break-all;
+        }
+
+        /* Inline input with browse button */
+        .input-with-browse {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .input-with-browse input {
+            flex: 1;
+        }
+
+        .btn-browse {
+            padding: var(--space-2) var(--space-3);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+
+        .btn-browse:hover {
+            background: var(--surface-hover);
+        }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen" x-data="app()" x-init="init()">
-    <!-- Header -->
-    <header class="bg-white shadow">
-        <div class="max-w-7xl mx-auto px-4 py-6">
-            <div class="flex justify-between items-center">
-                <h1 class="text-3xl font-bold text-gray-900">Marginalia</h1>
-                <div class="flex gap-4 items-center">
-                    <button @click="refreshStats()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
-                        Refresh
-                    </button>
-                    <label class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer">
-                        Import BibTeX
-                        <input type="file" accept=".bib" @change="importBibtex($event)" class="hidden">
-                    </label>
-                    <div class="flex gap-2">
-                        <input type="text" x-model="importPath"
-                               placeholder="/path/to/references.bib"
-                               class="px-2 py-1 border rounded text-sm w-48">
-                        <button @click="importFromPath()"
-                                :disabled="!importPath"
-                                class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
-                            Import Path
-                        </button>
+<body x-data="app()" x-init="init()">
+    <div class="app-shell">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">Marginalia</h1>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button class="nav-item active">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+                    </svg>
+                    <span>Library</span>
+                    <span class="nav-count" x-text="stats.total || 0"></span>
+                </button>
+            </nav>
+
+            <div class="sidebar-section">
+                <h2 class="h2" style="margin-bottom: var(--space-3);">Stats</h2>
+                <div style="font-size: 0.8125rem; color: var(--text-muted);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Discovered</span>
+                        <span x-text="stats.by_status?.discovered || 0"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Downloaded</span>
+                        <span x-text="stats.by_status?.downloaded || 0"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Summarized</span>
+                        <span x-text="stats.by_status?.summarized || 0"></span>
                     </div>
                 </div>
             </div>
-        </div>
-    </header>
 
-    <main class="max-w-7xl mx-auto px-4 py-8">
-        <!-- Stats Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-            <template x-for="(count, status) in stats.by_status" :key="status">
-                <div class="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-lg transition"
-                     @click="filterByStatus(status)"
-                     :class="{ 'ring-2 ring-blue-500': currentFilter === status }">
-                    <div class="text-2xl font-bold" x-text="count"></div>
-                    <div class="text-gray-500 capitalize" x-text="status"></div>
-                </div>
-            </template>
-        </div>
-
-        <!-- Search and Actions -->
-        <div class="bg-white rounded-lg shadow p-4 mb-8">
-            <div class="flex flex-wrap gap-4 items-center">
-                <input type="text"
-                       x-model="searchQuery"
-                       @keyup.enter="searchPapers()"
-                       placeholder="Search papers..."
-                       class="flex-1 min-w-64 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <button @click="searchPapers()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                    Search
+            <div class="sidebar-footer">
+                <button class="nav-item" @click="importMessage = null; showImportModal = true">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+                    </svg>
+                    <span>Import</span>
                 </button>
-                <button @click="clearFilter()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
-                    Clear
+                <button class="nav-item" @click="syncResult = null; showSyncModal = true">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M7.5 7.5h-.75A2.25 2.25 0 004.5 9.75v7.5a2.25 2.25 0 002.25 2.25h7.5a2.25 2.25 0 002.25-2.25v-7.5a2.25 2.25 0 00-2.25-2.25h-.75m-6 3.75l3 3m0 0l3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 012.25 2.25v7.5a2.25 2.25 0 01-2.25 2.25h-7.5a2.25 2.25 0 01-2.25-2.25v-.75"/>
+                    </svg>
+                    <span>Sync</span>
                 </button>
-                <div class="border-l pl-4 flex gap-2">
-                    <button @click="markSelectedWanted()"
-                            :disabled="selectedPapers.length === 0"
-                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">
-                        Mark Wanted (<span x-text="selectedPapers.length"></span>)
-                    </button>
-                    <button @click="findPDFs()" class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">
-                        Find PDFs
-                    </button>
-                    <button @click="summarizePapers()" class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700">
-                        Summarize
+            </div>
+        </aside>
+
+        <!-- Main area -->
+        <div class="main-area">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <span class="h2" x-text="currentViewLabel"></span>
+                </div>
+
+                <div class="topbar-center">
+                    <div class="search-box">
+                        <input type="text"
+                               class="search-input"
+                               placeholder="Search papers..."
+                               x-model="searchQuery"
+                               @keyup.enter="searchPapers()"
+                               @keyup.escape="searchQuery = ''">
+                    </div>
+                </div>
+
+                <div class="topbar-right">
+                    <button class="btn-icon" @click="refreshData()" title="Refresh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
                     </button>
                 </div>
-            </div>
-        </div>
+            </header>
 
-        <!-- Status Message -->
-        <template x-if="statusMessage">
-            <div class="rounded-lg p-4 mb-8 flex justify-between items-start"
-                 :class="{
-                     'bg-green-50 border border-green-200': statusType === 'success',
-                     'bg-red-50 border border-red-200': statusType === 'error',
-                     'bg-blue-50 border border-blue-200': statusType === 'info'
-                 }">
-                <div>
-                    <h3 class="font-bold mb-1"
-                        :class="{
-                            'text-green-800': statusType === 'success',
-                            'text-red-800': statusType === 'error',
-                            'text-blue-800': statusType === 'info'
-                        }"
-                        x-text="statusType === 'success' ? 'Success!' : statusType === 'error' ? 'Not Found' : 'Processing...'"></h3>
-                    <p :class="{
-                            'text-green-700': statusType === 'success',
-                            'text-red-700': statusType === 'error',
-                            'text-blue-700': statusType === 'info'
-                        }" x-text="statusMessage"></p>
-                    <template x-if="statusLinks && statusLinks.length > 0">
-                        <div class="mt-2 flex flex-wrap gap-2">
-                            <span class="text-sm text-gray-600">Try searching:</span>
-                            <template x-for="(link, i) in statusLinks.slice(0, 4)" :key="i">
-                                <a :href="link" target="_blank"
-                                   class="text-sm px-2 py-1 bg-white rounded border hover:bg-gray-50">
-                                   Search <span x-text="i + 1"></span>
-                                </a>
-                            </template>
+            <!-- Content -->
+            <div class="content">
+                <!-- Status Message -->
+                <template x-if="statusMessage">
+                    <div class="alert" :class="{
+                        'alert-success': statusType === 'success',
+                        'alert-error': statusType === 'error',
+                        'alert-info': statusType === 'info'
+                    }">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <div style="font-weight: 600; margin-bottom: 4px;" x-text="statusType === 'success' ? 'Success' : statusType === 'error' ? 'Not Found' : 'Processing...'"></div>
+                                <div x-text="statusMessage"></div>
+                                <template x-if="statusLinks && statusLinks.length > 0">
+                                    <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px;">
+                                        <template x-for="(link, i) in statusLinks.slice(0, 4)" :key="i">
+                                            <a :href="link" target="_blank" class="search-link">
+                                                Search <span x-text="i + 1"></span>
+                                            </a>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                            <button @click="statusMessage = null; statusLinks = null" style="background: none; border: none; cursor: pointer; font-size: 1.25rem; color: inherit; opacity: 0.6;">&times;</button>
                         </div>
-                    </template>
-                </div>
-                <button @click="statusMessage = null; statusLinks = null"
-                        class="text-gray-500 hover:text-gray-700 text-xl">&times;</button>
-            </div>
-        </template>
-
-        <!-- Job Status -->
-        <template x-if="Object.keys(jobs).length > 0">
-            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
-                <h3 class="font-bold text-yellow-800 mb-2">Active Jobs</h3>
-                <template x-for="(job, jobId) in jobs" :key="jobId">
-                    <div class="flex items-center gap-4 py-2">
-                        <span class="text-sm font-mono" x-text="jobId"></span>
-                        <div class="flex-1 bg-yellow-200 rounded-full h-2">
-                            <div class="bg-yellow-600 h-2 rounded-full transition-all"
-                                 :style="`width: ${(job.completed / job.total) * 100}%`"></div>
-                        </div>
-                        <span class="text-sm" x-text="`${job.completed}/${job.total} (${job.success} success)`"></span>
-                        <span class="text-xs px-2 py-1 rounded"
-                              :class="job.status === 'completed' ? 'bg-green-200' : 'bg-yellow-200'"
-                              x-text="job.status"></span>
                     </div>
                 </template>
-            </div>
-        </template>
 
-        <!-- Manual Download Queue Alert -->
-        <template x-if="manualQueue.length > 0">
-            <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-8">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="font-bold text-red-800">Manual Downloads Needed</h3>
-                    <button @click="showManualQueue = !showManualQueue" class="text-red-600 hover:underline">
-                        <span x-text="showManualQueue ? 'Hide' : `Show (${manualQueue.length})`"></span>
-                    </button>
-                </div>
-                <div x-show="showManualQueue" x-cloak class="space-y-4">
-                    <template x-for="paper in manualQueue" :key="paper.citekey">
-                        <div class="bg-white p-4 rounded border">
-                            <div class="font-medium" x-text="paper.title"></div>
-                            <div class="text-sm text-gray-500" x-text="`${paper.authors?.join(', ')} (${paper.year})`"></div>
-                            <div class="mt-2 flex flex-wrap gap-2">
-                                <template x-for="link in paper.search_links?.slice(0, 3)" :key="link">
-                                    <a :href="link" target="_blank" class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
-                                        Search
-                                    </a>
-                                </template>
-                                <label class="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 cursor-pointer">
-                                    Upload PDF
-                                    <input type="file" accept=".pdf" @change="uploadPDF(paper.citekey, $event)" class="hidden">
-                                </label>
+                <!-- Job Status -->
+                <template x-if="Object.keys(jobs).length > 0">
+                    <div class="alert alert-warning">
+                        <div style="font-weight: 600; margin-bottom: 8px;">Active Jobs</div>
+                        <template x-for="(job, jobId) in jobs" :key="jobId">
+                            <div class="job-progress">
+                                <span style="font-family: var(--font-mono); font-size: 0.75rem;" x-text="jobId"></span>
+                                <div class="job-progress-bar">
+                                    <div class="job-progress-fill" :style="`width: ${(job.completed / job.total) * 100}%`"></div>
+                                </div>
+                                <span style="font-size: 0.75rem;" x-text="`${job.completed}/${job.total}`"></span>
+                                <span class="status-badge" :class="job.status === 'completed' ? 'downloaded' : 'discovered'" x-text="job.status"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Library View -->
+                <div>
+                    <!-- Stats Cards -->
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); max-width: 500px;">
+                        <div class="card stat-card" :class="{ active: currentFilter === 'discovered' }" @click="filterByStatus('discovered')">
+                            <div class="stat-value" x-text="stats.by_status?.discovered || 0"></div>
+                            <div class="stat-label">
+                                <span class="status-dot discovered" style="margin-right: 4px;"></span>
+                                <span>discovered</span>
                             </div>
                         </div>
-                    </template>
-                </div>
-            </div>
-        </template>
+                        <div class="card stat-card" :class="{ active: currentFilter === 'downloaded' }" @click="filterByStatus('downloaded')">
+                            <div class="stat-value" x-text="stats.by_status?.downloaded || 0"></div>
+                            <div class="stat-label">
+                                <span class="status-dot downloaded" style="margin-right: 4px;"></span>
+                                <span>downloaded</span>
+                            </div>
+                        </div>
+                        <div class="card stat-card" :class="{ active: currentFilter === 'summarized' }" @click="filterByStatus('summarized')">
+                            <div class="stat-value" x-text="stats.by_status?.summarized || 0"></div>
+                            <div class="stat-label">
+                                <span class="status-dot summarized" style="margin-right: 4px;"></span>
+                                <span>summarized</span>
+                            </div>
+                        </div>
+                    </div>
 
-        <!-- Papers Table -->
-        <div class="bg-white rounded-lg shadow overflow-hidden">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-4 py-3 w-8">
-                            <input type="checkbox" @change="toggleSelectAll($event)">
-                        </th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Paper</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-24">Year</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">Status</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-40">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    <template x-for="paper in papers" :key="paper.citekey">
-                        <tr class="hover:bg-gray-50">
-                            <td class="px-4 py-3">
-                                <input type="checkbox"
-                                       :value="paper.citekey"
-                                       x-model="selectedPapers"
-                                       :disabled="paper.status !== 'discovered'">
-                            </td>
-                            <td class="px-4 py-3 cursor-pointer" @click="viewPaperDetail(paper.citekey)">
-                                <div class="font-medium text-gray-900 hover:text-blue-600" x-text="paper.title"></div>
-                                <div class="text-sm text-gray-500" x-text="paper.authors?.join(', ')"></div>
-                                <div class="text-xs text-gray-400" x-text="paper.citekey"></div>
-                            </td>
-                            <td class="px-4 py-3 text-sm" x-text="paper.year || '?'"></td>
-                            <td class="px-4 py-3">
-                                <span class="px-2 py-1 text-xs rounded-full"
-                                      :class="{
-                                          'bg-gray-100 text-gray-700': paper.status === 'discovered',
-                                          'bg-blue-100 text-blue-700': paper.status === 'wanted',
-                                          'bg-yellow-100 text-yellow-700': paper.status === 'queued',
-                                          'bg-green-100 text-green-700': paper.status === 'downloaded',
-                                          'bg-purple-100 text-purple-700': paper.status === 'summarized',
-                                          'bg-red-100 text-red-700': paper.status === 'failed',
-                                      }"
-                                      x-text="paper.status"></span>
-                            </td>
-                            <td class="px-4 py-3 text-sm">
-                                <div class="flex gap-2">
-                                    <template x-if="paper.pdf_path">
-                                        <a :href="`${apiBase}/api/papers/${paper.citekey}/pdf`" target="_blank"
-                                           class="text-blue-600 hover:underline">PDF</a>
-                                    </template>
-                                    <template x-if="paper.status === 'summarized'">
-                                        <button @click="viewSummary(paper.citekey)"
-                                                class="text-purple-600 hover:underline">Summary</button>
-                                    </template>
-                                    <template x-if="paper.status === 'summarized'">
-                                        <button @click="summarizeSinglePaper(paper.citekey)"
-                                                :disabled="loadingPaper === paper.citekey"
-                                                class="text-orange-600 hover:underline disabled:opacity-50">
-                                            <span x-show="loadingPaper !== paper.citekey">Re-summarize</span>
-                                            <span x-show="loadingPaper === paper.citekey">Summarizing...</span>
-                                        </button>
-                                    </template>
-                                    <template x-if="paper.status === 'discovered' || paper.status === 'wanted'">
-                                        <button @click="findPDFSingle(paper.citekey)"
-                                                :disabled="loadingPaper === paper.citekey"
-                                                class="text-green-600 hover:underline disabled:opacity-50">
-                                            <span x-show="loadingPaper !== paper.citekey">Find PDF</span>
-                                            <span x-show="loadingPaper === paper.citekey">Searching...</span>
-                                        </button>
-                                    </template>
-                                    <template x-if="paper.status === 'downloaded'">
-                                        <button @click="summarizeSinglePaper(paper.citekey)"
-                                                :disabled="loadingPaper === paper.citekey"
-                                                class="text-orange-600 hover:underline disabled:opacity-50">
-                                            <span x-show="loadingPaper !== paper.citekey">Summarize</span>
-                                            <span x-show="loadingPaper === paper.citekey">Summarizing...</span>
-                                        </button>
-                                    </template>
-                                </div>
-                            </td>
-                        </tr>
-                    </template>
-                </tbody>
-            </table>
+                    <!-- Actions Bar -->
+                    <div class="actions-bar">
+                        <button class="btn-secondary" :class="{ 'active': !currentFilter }" @click="clearFilter()">All Papers</button>
+                    </div>
 
-            <!-- Pagination -->
-            <div class="px-4 py-3 bg-gray-50 flex justify-between items-center">
-                <div class="text-sm text-gray-500">
-                    Showing <span x-text="papers.length"></span> of <span x-text="totalPapers"></span> papers
-                </div>
-                <div class="flex gap-2">
-                    <button @click="prevPage()" :disabled="offset === 0"
-                            class="px-3 py-1 bg-white border rounded disabled:opacity-50">Previous</button>
-                    <button @click="nextPage()" :disabled="offset + 100 >= totalPapers"
-                            class="px-3 py-1 bg-white border rounded disabled:opacity-50">Next</button>
-                </div>
-            </div>
-        </div>
-    </main>
+                    <!-- Papers Table -->
+                    <div class="card" style="overflow: hidden;">
+                        <table class="papers-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 32px;"></th>
+                                    <th>Paper</th>
+                                    <th style="width: 80px;">Year</th>
+                                    <th style="width: 100px;">Status</th>
+                                    <th style="width: 100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="paper in papers" :key="paper.citekey">
+                                    <tr class="paper-row" @click="viewPaperDetail(paper.citekey)">
+                                        <td>
+                                            <span class="status-dot" :class="paper.status"></span>
+                                        </td>
+                                        <td>
+                                            <div class="paper-title" x-text="paper.title"></div>
+                                            <div class="paper-authors" x-text="paper.authors?.join(', ')"></div>
+                                            <div class="paper-citekey" x-text="paper.citekey"></div>
+                                        </td>
+                                        <td style="color: var(--text-muted);" x-text="paper.year || '—'"></td>
+                                        <td>
+                                            <span class="status-badge" :class="paper.status" x-text="paper.status"></span>
+                                        </td>
+                                        <td @click.stop>
+                                            <div class="paper-row-actions" style="opacity: 1;">
+                                                <template x-if="paper.pdf_path">
+                                                    <a :href="`${apiBase}/api/papers/${paper.citekey}/pdf`" target="_blank" class="btn-text" style="padding: 4px;">PDF</a>
+                                                </template>
+                                                <template x-if="paper.status === 'discovered'">
+                                                    <button @click="findPDFSingle(paper.citekey)" :disabled="loadingPaper === paper.citekey" class="btn-text" style="padding: 4px;">
+                                                        <span x-show="loadingPaper !== paper.citekey">Find PDF</span>
+                                                        <span x-show="loadingPaper === paper.citekey">...</span>
+                                                    </button>
+                                                </template>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
 
-    <!-- Summary Modal -->
-    <div x-show="showSummary" x-cloak
-         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-         @click.self="showSummary = false">
-        <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
-            <div class="p-4 border-b flex justify-between items-center">
-                <h2 class="text-xl font-bold">Summary</h2>
-                <button @click="showSummary = false" class="text-gray-500 hover:text-gray-700">&times;</button>
-            </div>
-            <div class="p-4 overflow-y-auto max-h-[calc(80vh-60px)]">
-                <pre class="whitespace-pre-wrap font-sans text-sm" x-text="summaryContent"></pre>
+                        <!-- Pagination -->
+                        <div class="pagination">
+                            <div class="pagination-info">
+                                Showing <span x-text="papers.length"></span> of <span x-text="totalPapers"></span> papers
+                            </div>
+                            <div class="pagination-buttons">
+                                <button class="btn-secondary" @click="prevPage()" :disabled="offset === 0">Previous</button>
+                                <button class="btn-secondary" @click="nextPage()" :disabled="offset + 100 >= totalPapers">Next</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
 
-    <!-- Paper Detail Modal -->
-    <div x-show="showPaperDetail" x-cloak
-         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-         @click.self="closePaperDetail()">
-        <div class="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <!-- Header -->
-            <div class="p-4 border-b flex justify-between items-start">
-                <div class="flex-1 pr-4">
-                    <h2 class="text-xl font-bold" x-text="paperDetail?.title"></h2>
-                    <p class="text-gray-600" x-text="paperDetail?.authors?.join(', ')"></p>
-                    <p class="text-sm text-gray-500">
-                        <span x-text="paperDetail?.journal || 'Working Paper'"></span>
-                        (<span x-text="paperDetail?.year || 'n.d.'"></span>)
-                    </p>
-                </div>
-                <button @click="closePaperDetail()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+    <!-- Paper Detail View (full page) -->
+    <div class="paper-detail" x-show="showPaperDetail" x-cloak>
+        <header class="paper-detail-header">
+            <button class="btn-secondary" @click="closePaperDetail()">
+                <span style="margin-right: 4px;">&larr;</span> Back
+            </button>
+            <div class="paper-detail-actions">
+                <span class="status-badge" :class="paperDetail?.status" x-text="paperDetail?.status"></span>
+                <template x-if="paperDetail?.status === 'discovered'">
+                    <button class="btn-primary" @click="paperDetailAction('find-pdf')">Find PDF</button>
+                </template>
+                <template x-if="paperDetail?.status === 'downloaded' || paperDetail?.status === 'summarized'">
+                    <button class="btn-primary" @click="paperDetailAction('summarize')" x-text="paperDetail?.status === 'summarized' ? 'Re-summarize' : 'Summarize'"></button>
+                </template>
+                <template x-if="paperDetail?.pdf_path">
+                    <a :href="`${apiBase}/api/papers/${paperDetail.citekey}/pdf`" target="_blank" class="btn-secondary">
+                        Open PDF
+                    </a>
+                </template>
             </div>
+        </header>
 
-            <!-- Content -->
-            <div class="flex-1 overflow-y-auto p-4">
-                <!-- Status and Actions -->
-                <div class="flex flex-wrap gap-4 items-center mb-6 p-4 bg-gray-50 rounded">
-                    <span class="px-3 py-1 rounded-full text-sm font-medium"
-                          :class="{
-                              'bg-gray-100 text-gray-700': paperDetail?.status === 'discovered',
-                              'bg-blue-100 text-blue-700': paperDetail?.status === 'wanted',
-                              'bg-green-100 text-green-700': paperDetail?.status === 'downloaded',
-                              'bg-purple-100 text-purple-700': paperDetail?.status === 'summarized',
-                          }"
-                          x-text="paperDetail?.status"></span>
-
-                    <!-- Action buttons based on status -->
-                    <template x-if="paperDetail?.status === 'discovered' || paperDetail?.status === 'wanted'">
-                        <button @click="paperDetailAction('find-pdf')"
-                                class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700">
-                            Find PDF
-                        </button>
-                    </template>
-                    <template x-if="paperDetail?.status === 'downloaded'">
-                        <button @click="paperDetailAction('summarize')"
-                                class="px-3 py-1 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">
-                            Summarize
-                        </button>
-                    </template>
-                    <template x-if="paperDetail?.status === 'summarized'">
-                        <button @click="paperDetailAction('summarize')"
-                                class="px-3 py-1 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">
-                            Re-summarize
-                        </button>
-                    </template>
-                    <template x-if="paperDetail?.pdf_path">
-                        <a :href="`${apiBase}/api/papers/${paperDetail.citekey}/pdf`" target="_blank"
-                           class="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
-                            Download PDF
-                        </a>
-                    </template>
+        <div class="paper-detail-content">
+            <!-- Left margin rail -->
+            <aside class="paper-margin">
+                <div class="margin-section">
+                    <span class="margin-label">Year</span>
+                    <span class="margin-value" x-text="paperDetail?.year || '—'"></span>
                 </div>
-
-                <!-- Metadata -->
-                <div class="mb-6">
-                    <h3 class="font-bold text-lg mb-2">Details</h3>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                        <template x-if="paperDetail?.doi">
-                            <div>
-                                <span class="text-gray-500">DOI:</span>
-                                <a :href="`https://doi.org/${paperDetail.doi}`" target="_blank"
-                                   class="text-blue-600 hover:underline" x-text="paperDetail.doi"></a>
-                            </div>
-                        </template>
-                        <template x-if="paperDetail?.url">
-                            <div>
-                                <span class="text-gray-500">URL:</span>
-                                <a :href="paperDetail.url" target="_blank"
-                                   class="text-blue-600 hover:underline">Link</a>
-                            </div>
-                        </template>
-                        <div>
-                            <span class="text-gray-500">Citekey:</span>
-                            <code class="bg-gray-100 px-1 rounded" x-text="paperDetail?.citekey"></code>
-                        </div>
-                        <template x-if="paperDetail?.added_at">
-                            <div>
-                                <span class="text-gray-500">Added:</span>
-                                <span x-text="new Date(paperDetail.added_at).toLocaleDateString()"></span>
-                            </div>
-                        </template>
+                <div class="margin-section">
+                    <span class="margin-label">Journal</span>
+                    <span class="margin-value" x-text="paperDetail?.journal || 'Working Paper'"></span>
+                </div>
+                <div class="margin-section">
+                    <span class="margin-label">Citekey</span>
+                    <code class="margin-value font-mono" style="font-size: 0.75rem;" x-text="paperDetail?.citekey"></code>
+                </div>
+                <template x-if="paperDetail?.doi">
+                    <div class="margin-section">
+                        <span class="margin-label">DOI</span>
+                        <a :href="'https://doi.org/' + paperDetail.doi" class="margin-link" x-text="paperDetail.doi" target="_blank"></a>
                     </div>
+                </template>
+                <template x-if="paperDetail?.url">
+                    <div class="margin-section">
+                        <span class="margin-label">URL</span>
+                        <a :href="paperDetail.url" class="margin-link" target="_blank">Link</a>
+                    </div>
+                </template>
+                <template x-if="paperDetail?.added_at">
+                    <div class="margin-section">
+                        <span class="margin-label">Added</span>
+                        <span class="margin-value" x-text="new Date(paperDetail.added_at).toLocaleDateString()"></span>
+                    </div>
+                </template>
+            </aside>
+
+            <!-- Main reading area -->
+            <main class="paper-main">
+                <h1 class="h1" x-text="paperDetail?.title"></h1>
+                <p class="paper-authors-full" x-text="paperDetail?.authors?.join(', ')"></p>
+
+                <!-- BibTeX Citation -->
+                <div class="citation-block">
+                    <div class="citation-block-header">BibTeX Citation</div>
+                    <template x-if="paperDetail?.bibtex">
+                        <pre x-text="paperDetail.bibtex"></pre>
+                    </template>
+                    <template x-if="!paperDetail?.bibtex">
+                        <pre x-text="formatBibtex(paperDetail)"></pre>
+                    </template>
                 </div>
 
                 <!-- Abstract -->
                 <template x-if="paperDetail?.abstract">
-                    <div class="mb-6">
-                        <h3 class="font-bold text-lg mb-2">Abstract</h3>
-                        <p class="text-sm text-gray-700" x-text="paperDetail.abstract"></p>
-                    </div>
+                    <section class="paper-section">
+                        <h2 class="h2">Abstract</h2>
+                        <p class="body-reading" x-text="paperDetail.abstract"></p>
+                    </section>
                 </template>
 
                 <!-- Summary -->
                 <template x-if="paperSummary">
-                    <div class="mb-6">
-                        <h3 class="font-bold text-lg mb-2">Summary</h3>
-                        <pre class="whitespace-pre-wrap font-sans text-sm bg-gray-50 p-4 rounded" x-text="paperSummary"></pre>
-                    </div>
+                    <section class="paper-section">
+                        <h2 class="h2">Summary</h2>
+                        <div class="body-reading summary-content markdown-body" x-html="renderMarkdown(paperSummary)"></div>
+                    </section>
                 </template>
 
                 <!-- Related Papers -->
                 <template x-if="paperDetail?.related_papers?.length > 0">
-                    <div class="mb-6">
-                        <h3 class="font-bold text-lg mb-2">Related Papers</h3>
-                        <div class="space-y-3">
-                            <template x-for="related in paperDetail.related_papers" :key="related.title">
-                                <div class="p-3 border rounded bg-white">
-                                    <div class="font-medium" x-text="related.title"></div>
-                                    <div class="text-sm text-gray-500">
-                                        <span x-text="related.authors?.join(', ') || 'Unknown authors'"></span>
-                                        (<span x-text="related.year || 'n.d.'"></span>)
-                                    </div>
-                                    <div class="text-sm italic text-gray-600 mt-1" x-text="related.why_related"></div>
-                                    <div class="mt-2">
-                                        <!-- If in vault, show link -->
-                                        <template x-if="related.vault_citekey">
-                                            <button @click="viewPaperDetail(related.vault_citekey)"
-                                                    class="text-blue-600 hover:underline text-sm">
-                                                View in Library
-                                            </button>
-                                        </template>
-                                        <!-- If not in vault, show add button -->
-                                        <template x-if="!related.vault_citekey">
-                                            <button @click="addRelatedPaper(related)"
-                                                    class="text-green-600 hover:underline text-sm">
-                                                + Add to Library
-                                            </button>
-                                        </template>
-                                    </div>
+                    <section class="paper-section">
+                        <h2 class="h2">Related Papers</h2>
+                        <template x-for="related in paperDetail.related_papers" :key="related.title">
+                            <div class="related-paper-card">
+                                <div class="related-paper-title" x-text="related.title"></div>
+                                <div class="related-paper-meta">
+                                    <span x-text="related.authors?.join(', ') || 'Unknown authors'"></span>
+                                    (<span x-text="related.year || 'n.d.'"></span>)
                                 </div>
-                            </template>
-                        </div>
+                                <div class="related-paper-reason" x-text="related.why_related"></div>
+                                <div class="related-paper-actions">
+                                    <template x-if="related.vault_citekey">
+                                        <button @click="viewPaperDetail(related.vault_citekey)" class="link-btn">
+                                            View in Library
+                                        </button>
+                                    </template>
+                                    <template x-if="!related.vault_citekey">
+                                        <button @click="addRelatedPaper(related)" class="link-btn">
+                                            + Add to Library
+                                        </button>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </section>
+                </template>
+            </main>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div class="modal-overlay" x-show="showImportModal" x-cloak @click.self="showImportModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3">Import BibTeX</h3>
+                <button @click="showImportModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <template x-if="importMessage">
+                    <div class="alert" :class="importMessageType === 'success' ? 'alert-success' : importMessageType === 'info' ? 'alert-info' : 'alert-error'" style="margin-bottom: var(--space-4);">
+                        <span x-text="importMessage"></span>
                     </div>
                 </template>
+
+                <div style="margin-bottom: var(--space-6);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Upload File</label>
+                    <label class="btn-primary" style="cursor: pointer; display: inline-block;" :style="importing ? 'opacity: 0.5; pointer-events: none;' : ''">
+                        <span x-show="!importing">Choose .bib File</span>
+                        <span x-show="importing">Importing...</span>
+                        <input type="file" accept=".bib" @change="importBibtex($event)" style="display: none;" :disabled="importing">
+                    </label>
+                </div>
+                <div>
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Or Enter Path</label>
+                    <div class="input-with-browse">
+                        <input type="text" x-model="importPath"
+                               placeholder="/path/to/references.bib"
+                               class="search-input">
+                        <button class="btn-browse" @click="openBrowse('import')">Browse</button>
+                    </div>
+                    <div style="margin-top: var(--space-3);">
+                        <button class="btn-primary" @click="importFromPath()" :disabled="!importPath || importing">
+                            <span x-show="!importing">Import</span>
+                            <span x-show="importing">Importing...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Modal -->
+    <div class="modal-overlay" x-show="showSyncModal" x-cloak @click.self="showSyncModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3">Sync to Folder</h3>
+                <button @click="showSyncModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-muted); margin-bottom: var(--space-4); font-size: 0.875rem;">
+                    Export your library to a local folder. This will copy PDFs, summaries, and generate a merged BibTeX file.
+                </p>
+
+                <div style="margin-bottom: var(--space-4); padding: var(--space-3); background: var(--surface); border-radius: 6px; font-size: 0.8125rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="color: var(--text-muted);">Source:</span>
+                            <code style="font-family: var(--font-mono); font-size: 0.75rem;" x-text="sourceBibPath || 'Not set'"></code>
+                        </div>
+                        <button class="btn-browse" style="font-size: 0.75rem; padding: 4px 8px;" @click="openBrowse('source')">Set</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: var(--space-4);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Export Folder</label>
+                    <div class="input-with-browse">
+                        <input type="text" x-model="syncPath"
+                               placeholder="~/Documents/MyLibrary"
+                               class="search-input">
+                        <button class="btn-browse" @click="openBrowse('sync')">Browse</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: var(--space-6);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Include</label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); cursor: pointer;">
+                        <input type="checkbox" x-model="syncOptions.pdfs">
+                        <span>PDFs (<span x-text="stats.by_status?.downloaded || 0"></span> + <span x-text="stats.by_status?.summarized || 0"></span> files)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); cursor: pointer;">
+                        <input type="checkbox" x-model="syncOptions.summaries">
+                        <span>Summaries (<span x-text="stats.by_status?.summarized || 0"></span> files)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                        <input type="checkbox" x-model="syncOptions.bibtex">
+                        <span>BibTeX (references.bib)</span>
+                    </label>
+                </div>
+
+                <template x-if="syncResult">
+                    <div class="alert" :class="syncResult.success ? 'alert-success' : 'alert-error'" style="margin-bottom: var(--space-4);">
+                        <template x-if="syncResult.success">
+                            <div>
+                                <div style="font-weight: 600; margin-bottom: 4px;">Sync Complete</div>
+                                <div style="font-size: 0.875rem;">
+                                    <span x-text="syncResult.pdfs_copied"></span> PDFs,
+                                    <span x-text="syncResult.summaries_copied"></span> summaries exported
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="!syncResult.success">
+                            <div x-text="syncResult.error"></div>
+                        </template>
+                    </div>
+                </template>
+
+                <div style="display: flex; gap: var(--space-3);">
+                    <button class="btn-primary" @click="syncToFolder()" :disabled="!syncPath || syncing">
+                        <span x-show="!syncing">Sync Now</span>
+                        <span x-show="syncing">Syncing...</span>
+                    </button>
+                    <a :href="`${apiBase}/api/export-bibtex`" download="references.bib" class="btn-secondary" style="text-decoration: none;">
+                        Download BibTeX Only
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Browse Modal -->
+    <div class="modal-overlay" x-show="showBrowseModal" x-cloak @click.self="showBrowseModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3" x-text="browseMode === 'import' ? 'Select .bib File' : browseMode === 'source' ? 'Set Source .bib' : 'Select Folder'"></h3>
+                <button @click="showBrowseModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="browse-current" x-text="browseCurrent"></div>
+
+                <div class="browse-list">
+                    <template x-if="browseParent">
+                        <div class="browse-item parent" @click="browseTo(browseParent)">
+                            <span class="icon">..</span>
+                            <span>Parent folder</span>
+                        </div>
+                    </template>
+
+                    <template x-for="dir in browseDirectories" :key="dir.path">
+                        <div class="browse-item" @click="browseTo(dir.path)">
+                            <span class="icon">📁</span>
+                            <span x-text="dir.name"></span>
+                        </div>
+                    </template>
+
+                    <template x-if="browseMode === 'import' || browseMode === 'source'">
+                        <template x-for="file in browseBibFiles" :key="file.path">
+                            <div class="browse-item" @click="selectBrowsePath(file.path)" style="color: var(--accent);">
+                                <span class="icon">📄</span>
+                                <span x-text="file.name"></span>
+                            </div>
+                        </template>
+                    </template>
+                </div>
+
+                <div style="display: flex; gap: var(--space-3);">
+                    <template x-if="browseMode === 'sync'">
+                        <button class="btn-primary" @click="selectBrowsePath(browseCurrent)">
+                            Select This Folder
+                        </button>
+                    </template>
+                    <button class="btn-secondary" @click="showBrowseModal = false">Cancel</button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // Configure API endpoint - empty for same-origin, or full URL for external API
-        // Set window.MARGINALIA_API_BASE before loading this script for production
         window.MARGINALIA_API_BASE = window.MARGINALIA_API_BASE || '';
 
         function app() {
@@ -440,29 +1461,179 @@
                 offset: 0,
                 searchQuery: '',
                 currentFilter: null,
-                selectedPapers: [],
                 jobs: {},
-                manualQueue: [],
-                showManualQueue: false,
-                showSummary: false,
-                summaryContent: '',
                 jobPollInterval: null,
-                // Status message
-                statusMessage: null,
-                statusType: 'info', // info, success, error
-                statusLinks: null, // manual search links
-                loadingPaper: null, // citekey of paper currently being processed
-                importPath: '', // path for import-from-path feature
-                // Paper detail modal
+
+                // UI state
+                showImportModal: false,
+                showSyncModal: false,
                 showPaperDetail: false,
                 paperDetail: null,
                 paperSummary: null,
 
+                // Status message
+                statusMessage: null,
+                statusType: 'info',
+                statusLinks: null,
+                loadingPaper: null,
+                importPath: '',
+                importMessage: null,
+                importMessageType: 'info',
+                importing: false,
+
+                // Sync state
+                syncPath: '',
+                sourceBibPath: null,
+                syncOptions: { pdfs: true, summaries: true, bibtex: true },
+                syncing: false,
+                syncResult: null,
+
+                // Browse state
+                showBrowseModal: false,
+                browseMode: null,  // 'import', 'source', or 'sync'
+                browseCurrent: '',
+                browseParent: null,
+                browseDirectories: [],
+                browseBibFiles: [],
+
+                get currentViewLabel() {
+                    return 'Library';
+                },
+
+                formatBibtex(paper) {
+                    if (!paper) return '';
+                    const type = paper.journal ? 'article' : 'misc';
+                    const authors = paper.authors?.join(' and ') || 'Unknown';
+                    let bib = `@${type}{${paper.citekey},\n`;
+                    bib += `  author = {${authors}},\n`;
+                    bib += `  title = {${paper.title || ''}},\n`;
+                    if (paper.journal) bib += `  journal = {${paper.journal}},\n`;
+                    if (paper.year) bib += `  year = {${paper.year}},\n`;
+                    if (paper.doi) bib += `  doi = {${paper.doi}},\n`;
+                    if (paper.url) bib += `  url = {${paper.url}},\n`;
+                    bib += `}`;
+                    return bib;
+                },
+
+                renderMarkdown(text) {
+                    if (!text) return '';
+                    try {
+                        let processed = text;
+
+                        // Strip metadata frontmatter block (title: "..." authors: [...] etc.)
+                        processed = processed.replace(/^title:\s*"[^"]*"\s*authors:\s*\[[^\]]*\]\s*year:\s*\d*\s*journal:\s*"[^"]*"\s*citekey:\s*"[^"]*"\s*doi:\s*"[^"]*"\s*status:\s*"[^"]*"\s*pdf_path:\s*"[^"]*"\s*/i, '');
+
+                        // Also strip YAML-style frontmatter between --- markers
+                        processed = processed.replace(/^---[\s\S]*?---\s*/m, '');
+
+                        // Strip leading "# Summary" or "## Summary" heading (we already have section header)
+                        processed = processed.replace(/^##?\s*Summary\s*\n+/i, '');
+
+                        // Strip "Related Work" or "Related Papers" sections from the summary text
+                        // (we show these as separate linked cards, not prose)
+                        processed = processed.replace(/##?\s*Related\s*(Work|Papers|Literature)[\s\S]*$/i, '');
+
+                        // Convert wiki-links [[filename]] to actual links
+                        // [[paper.pdf]] -> link to the paper's PDF
+                        processed = processed.replace(/\[\[([^\]]+\.pdf)\]\]/gi, (match, filename) => {
+                            if (this.paperDetail?.pdf_path) {
+                                return `[Open PDF](${this.apiBase}/api/papers/${this.paperDetail.citekey}/pdf)`;
+                            }
+                            return match;
+                        });
+                        // Convert other wiki-links [[citekey]] to paper links (if they exist)
+                        processed = processed.replace(/\[\[([^\]]+)\]\]/g, (match, content) => {
+                            // Just render as emphasized text if not a PDF link
+                            return `*${content}*`;
+                        });
+                        return marked.parse(processed);
+                    } catch (e) {
+                        return text;
+                    }
+                },
+
                 async init() {
+                    await this.refreshData();
+                    await this.loadConfig();
+                    this.startJobPolling();
+                },
+
+                async loadConfig() {
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/config`);
+                        const config = await res.json();
+                        if (config.default_sync_path) {
+                            this.syncPath = config.default_sync_path;
+                        }
+                        if (config.source_bib_path) {
+                            this.sourceBibPath = config.source_bib_path;
+                        }
+                    } catch (e) {
+                        console.log('Could not load config:', e);
+                    }
+                },
+
+                async openBrowse(mode) {
+                    this.browseMode = mode;
+                    // Start from current path or home
+                    let startPath = null;
+                    if (mode === 'import' && this.importPath) {
+                        startPath = this.importPath.split('/').slice(0, -1).join('/');
+                    } else if (mode === 'source' && this.sourceBibPath) {
+                        startPath = this.sourceBibPath.split('/').slice(0, -1).join('/');
+                    } else if (mode === 'sync' && this.syncPath) {
+                        startPath = this.syncPath;
+                    }
+                    await this.browseTo(startPath);
+                    this.showBrowseModal = true;
+                },
+
+                async browseTo(path) {
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/browse`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: path })
+                        });
+                        const data = await res.json();
+                        this.browseCurrent = data.current;
+                        this.browseParent = data.parent;
+                        this.browseDirectories = data.directories;
+                        this.browseBibFiles = data.bib_files || [];
+                    } catch (e) {
+                        console.error('Browse error:', e);
+                    }
+                },
+
+                async selectBrowsePath(path) {
+                    if (this.browseMode === 'import') {
+                        this.importPath = path;
+                    } else if (this.browseMode === 'source') {
+                        // Set the source path via API
+                        try {
+                            const res = await fetch(`${this.apiBase}/api/config/source-path`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ source_path: path })
+                            });
+                            const data = await res.json();
+                            this.sourceBibPath = data.source_bib_path;
+                            // Also set sync path to parent directory
+                            const pathParts = path.split('/');
+                            pathParts.pop();
+                            this.syncPath = pathParts.join('/');
+                        } catch (e) {
+                            console.error('Error setting source path:', e);
+                        }
+                    } else if (this.browseMode === 'sync') {
+                        this.syncPath = path;
+                    }
+                    this.showBrowseModal = false;
+                },
+
+                async refreshData() {
                     await this.refreshStats();
                     await this.loadPapers();
-                    await this.loadManualQueue();
-                    this.startJobPolling();
                 },
 
                 async refreshStats() {
@@ -479,12 +1650,6 @@
                     const data = await res.json();
                     this.papers = data.papers;
                     this.totalPapers = data.total;
-                },
-
-                async loadManualQueue() {
-                    const res = await fetch(`${this.apiBase}/api/manual-queue`);
-                    const data = await res.json();
-                    this.manualQueue = data.papers;
                 },
 
                 filterByStatus(status) {
@@ -516,45 +1681,9 @@
                     this.loadPapers();
                 },
 
-                toggleSelectAll(event) {
-                    if (event.target.checked) {
-                        this.selectedPapers = this.papers
-                            .filter(p => p.status === 'discovered')
-                            .map(p => p.citekey);
-                    } else {
-                        this.selectedPapers = [];
-                    }
-                },
-
-                async wantPaper(citekey) {
-                    await fetch(`${this.apiBase}/api/papers/${citekey}/want`, { method: 'POST' });
-                    await this.refreshStats();
-                    await this.loadPapers();
-                },
-
-                async markSelectedWanted() {
-                    await fetch(`${this.apiBase}/api/papers/mark-wanted`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ citekeys: this.selectedPapers })
-                    });
-                    this.selectedPapers = [];
-                    await this.refreshStats();
-                    await this.loadPapers();
-                },
-
-                async findPDFs() {
-                    const res = await fetch(`${this.apiBase}/api/find-pdfs`, { method: 'POST' });
-                    const data = await res.json();
-                    if (data.job_id) {
-                        this.jobs[data.job_id] = { status: 'running', total: data.total, completed: 0, success: 0 };
-                    }
-                },
-
                 async findPDFSingle(citekey) {
-                    // Show loading state
                     this.loadingPaper = citekey;
-                    this.statusMessage = `Searching for PDF... (checking Unpaywall, Semantic Scholar, NBER, Google Scholar, and Claude)`;
+                    this.statusMessage = `Searching for PDF...`;
                     this.statusType = 'info';
                     this.statusLinks = null;
 
@@ -565,36 +1694,24 @@
                         if (data.status === 'success') {
                             this.statusMessage = `PDF found from ${data.source}!`;
                             this.statusType = 'success';
-                            this.statusLinks = null;
                         } else {
-                            this.statusMessage = `No open access PDF found for "${citekey}". Try the manual search links below.`;
+                            this.statusMessage = `No open access PDF found. Try the manual search links.`;
                             this.statusType = 'error';
                             this.statusLinks = data.manual_links || [];
                         }
 
-                        await this.refreshStats();
-                        await this.loadPapers();
-                        await this.loadManualQueue();
+                        await this.refreshData();
                     } catch (e) {
                         this.statusMessage = `Error: ${e.message}`;
                         this.statusType = 'error';
-                        this.statusLinks = null;
                     } finally {
                         this.loadingPaper = null;
                     }
                 },
 
-                async summarizePapers() {
-                    const res = await fetch(`${this.apiBase}/api/summarize`, { method: 'POST' });
-                    const data = await res.json();
-                    if (data.job_id) {
-                        this.jobs[data.job_id] = { status: 'running', total: data.total, completed: 0, success: 0 };
-                    }
-                },
-
                 async summarizeSinglePaper(citekey) {
                     this.loadingPaper = citekey;
-                    this.statusMessage = `Summarizing ${citekey}... (extracting text and generating summary)`;
+                    this.statusMessage = `Summarizing ${citekey}...`;
                     this.statusType = 'info';
                     this.statusLinks = null;
 
@@ -603,12 +1720,11 @@
                         const data = await res.json();
 
                         if (res.ok) {
-                            this.statusMessage = `Successfully summarized ${citekey}!`;
+                            this.statusMessage = `Successfully summarized!`;
                             this.statusType = 'success';
-                            await this.refreshStats();
-                            await this.loadPapers();
+                            await this.refreshData();
                         } else {
-                            this.statusMessage = `Error summarizing ${citekey}: ${data.detail}`;
+                            this.statusMessage = `Error: ${data.detail}`;
                             this.statusType = 'error';
                         }
                     } catch (e) {
@@ -624,12 +1740,9 @@
                         const res = await fetch(`${this.apiBase}/api/jobs`);
                         this.jobs = await res.json();
 
-                        // Check if any jobs completed
                         const hasCompleted = Object.values(this.jobs).some(j => j.status === 'completed');
                         if (hasCompleted) {
-                            await this.refreshStats();
-                            await this.loadPapers();
-                            await this.loadManualQueue();
+                            await this.refreshData();
                         }
                     }, 2000);
                 },
@@ -646,38 +1759,44 @@
                         body: formData
                     });
 
-                    await this.refreshStats();
-                    await this.loadPapers();
-                    await this.loadManualQueue();
-                },
-
-                async viewSummary(citekey) {
-                    const res = await fetch(`${this.apiBase}/api/papers/${citekey}/summary`);
-                    const data = await res.json();
-                    this.summaryContent = data.content;
-                    this.showSummary = true;
+                    await this.refreshData();
                 },
 
                 async importBibtex(event) {
                     const file = event.target.files[0];
                     if (!file) return;
 
-                    const formData = new FormData();
-                    formData.append('file', file);
+                    this.importing = true;
+                    this.importMessage = 'Importing...';
+                    this.importMessageType = 'info';
 
-                    const res = await fetch(`${this.apiBase}/api/import-bibtex`, {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const data = await res.json();
-                    alert(`Imported ${data.added} papers`);
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', file);
 
-                    await this.refreshStats();
-                    await this.loadPapers();
+                        const res = await fetch(`${this.apiBase}/api/import-bibtex`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await res.json();
+
+                        this.importMessage = `Imported ${data.added} papers`;
+                        this.importMessageType = 'success';
+                        await this.refreshData();
+                    } catch (e) {
+                        this.importMessage = `Error: ${e.message}`;
+                        this.importMessageType = 'error';
+                    } finally {
+                        this.importing = false;
+                    }
                 },
 
                 async importFromPath() {
                     if (!this.importPath) return;
+
+                    this.importing = true;
+                    this.importMessage = 'Importing...';
+                    this.importMessageType = 'info';
 
                     try {
                         const res = await fetch(`${this.apiBase}/api/import-bibtex-path`, {
@@ -688,25 +1807,64 @@
                         const data = await res.json();
 
                         if (res.ok) {
-                            alert(`Imported ${data.added} papers`);
-                            this.importPath = '';
-                            await this.refreshStats();
-                            await this.loadPapers();
+                            this.importMessage = `Imported ${data.added} papers`;
+                            this.importMessageType = 'success';
+                            // Set sync path to parent directory of imported .bib
+                            if (data.source_path) {
+                                this.sourceBibPath = data.source_path;
+                                const pathParts = data.source_path.split('/');
+                                pathParts.pop(); // Remove filename
+                                this.syncPath = pathParts.join('/');
+                            }
+                            await this.refreshData();
                         } else {
-                            alert(`Error: ${data.detail}`);
+                            this.importMessage = `Error: ${data.detail}`;
+                            this.importMessageType = 'error';
                         }
                     } catch (e) {
-                        alert(`Error: ${e.message}`);
+                        this.importMessage = `Error: ${e.message}`;
+                        this.importMessageType = 'error';
+                    } finally {
+                        this.importing = false;
+                    }
+                },
+
+                async syncToFolder() {
+                    if (!this.syncPath) return;
+
+                    this.syncing = true;
+                    this.syncResult = null;
+
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/sync`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                folder_path: this.syncPath,
+                                include_pdfs: this.syncOptions.pdfs,
+                                include_summaries: this.syncOptions.summaries,
+                                include_bibtex: this.syncOptions.bibtex
+                            })
+                        });
+                        const data = await res.json();
+
+                        if (res.ok) {
+                            this.syncResult = { success: true, ...data };
+                        } else {
+                            this.syncResult = { success: false, error: data.detail };
+                        }
+                    } catch (e) {
+                        this.syncResult = { success: false, error: e.message };
+                    } finally {
+                        this.syncing = false;
                     }
                 },
 
                 async viewPaperDetail(citekey) {
-                    // Fetch paper details
                     const res = await fetch(`${this.apiBase}/api/papers/${citekey}`);
                     this.paperDetail = await res.json();
                     this.paperSummary = null;
 
-                    // Fetch summary if summarized
                     if (this.paperDetail.status === 'summarized') {
                         try {
                             const summaryRes = await fetch(`${this.apiBase}/api/papers/${citekey}/summary`);
@@ -741,17 +1899,18 @@
                         const data = await res.json();
 
                         if (data.status === 'added') {
-                            alert(`Added "${related.title}" to library`);
-                            // Update the related paper's vault_citekey
+                            this.statusMessage = `Added "${related.title.substring(0, 50)}..." to library`;
+                            this.statusType = 'success';
                             related.vault_citekey = data.citekey;
-                            await this.refreshStats();
-                            await this.loadPapers();
+                            await this.refreshData();
                         } else if (data.status === 'exists') {
-                            alert(`Paper already exists in library`);
+                            this.statusMessage = `Paper already exists in library`;
+                            this.statusType = 'info';
                             related.vault_citekey = data.citekey;
                         }
                     } catch (e) {
-                        alert(`Error: ${e.message}`);
+                        this.statusMessage = `Error: ${e.message}`;
+                        this.statusType = 'error';
                     }
                 },
 
@@ -761,11 +1920,9 @@
 
                     if (action === 'find-pdf') {
                         await this.findPDFSingle(citekey);
-                        // Refresh paper detail
                         await this.viewPaperDetail(citekey);
                     } else if (action === 'summarize') {
                         await this.summarizeSinglePaper(citekey);
-                        // Refresh paper detail
                         await this.viewPaperDetail(citekey);
                     }
                 }
