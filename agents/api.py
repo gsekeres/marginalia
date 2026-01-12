@@ -14,10 +14,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .models import Paper, PaperStatus
+from .models import Paper, PaperStatus, RelatedPaper
 from .pdf_finder import PDFFinder
 from .summarizer import Summarizer
-from .vault import VaultManager
+from .vault import VaultManager, generate_citekey
 
 app = FastAPI(
     title="Marginalia",
@@ -61,6 +61,38 @@ class RegisterPDFRequest(BaseModel):
     citekey: str
 
 
+class ImportPathRequest(BaseModel):
+    file_path: str
+
+
+class AddRelatedPaperRequest(BaseModel):
+    title: str
+    authors: list[str]
+    year: Optional[int] = None
+    source_citekey: str  # Paper this was related to
+
+
+def normalize_title(title: str) -> str:
+    """Normalize a title for comparison."""
+    import re
+    return re.sub(r'[^a-z0-9\s]', '', title.lower()).strip()
+
+
+def match_related_papers_to_vault(paper: Paper) -> Paper:
+    """Update related papers with vault_citekey if they exist in vault."""
+    for related in paper.related_papers:
+        related_title_norm = normalize_title(related.title)
+        for vault_paper in vault.index.papers.values():
+            vault_title_norm = normalize_title(vault_paper.title)
+            # Check for title similarity
+            if (related_title_norm in vault_title_norm or
+                vault_title_norm in related_title_norm or
+                related_title_norm == vault_title_norm):
+                related.vault_citekey = vault_paper.citekey
+                break
+    return paper
+
+
 # Routes
 
 @app.get("/")
@@ -101,10 +133,12 @@ async def get_papers(
 
 @app.get("/api/papers/{citekey}")
 async def get_paper(citekey: str):
-    """Get a specific paper."""
+    """Get a specific paper with related papers matched to vault."""
     paper = vault.get_paper(citekey)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
+    # Match related papers to vault
+    paper = match_related_papers_to_vault(paper)
     return paper.model_dump()
 
 
@@ -113,6 +147,29 @@ async def mark_wanted(request: MarkWantedRequest):
     """Mark papers as wanted for download."""
     count = vault.mark_wanted(request.citekeys)
     return {"marked": count}
+
+
+@app.post("/api/papers/add-related")
+async def add_related_paper(request: AddRelatedPaperRequest):
+    """Add a related paper to the vault as 'discovered'."""
+    # Generate citekey from metadata
+    citekey = generate_citekey(request.authors, request.year, request.title)
+
+    # Check if already exists
+    existing = vault.get_paper(citekey)
+    if existing:
+        return {"status": "exists", "citekey": citekey}
+
+    # Create new paper
+    paper = Paper(
+        citekey=citekey,
+        title=request.title,
+        authors=request.authors,
+        year=request.year,
+        status=PaperStatus.DISCOVERED,
+    )
+    vault.add_paper(paper)
+    return {"status": "added", "citekey": citekey}
 
 
 @app.post("/api/papers/{citekey}/want")
@@ -365,6 +422,19 @@ async def import_bibtex(file: UploadFile = File(...)):
     # Clean up
     temp_path.unlink()
 
+    return {"added": added}
+
+
+@app.post("/api/import-bibtex-path")
+async def import_bibtex_from_path(request: ImportPathRequest):
+    """Import papers from a BibTeX file at a specified path."""
+    path = Path(request.file_path).expanduser()
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+    if not path.suffix == ".bib":
+        raise HTTPException(status_code=400, detail="File must be a .bib file")
+
+    added = vault.import_bibtex(path)
     return {"added": added}
 
 

@@ -7,7 +7,7 @@
 set -e
 
 CITEKEY="$1"
-VAULT_PATH="${VAULT_PATH:-/Users/gabesekeres/Dropbox/Papers/LitVault/vault}"
+VAULT_PATH="${VAULT_PATH:-/Users/gabesekeres/Dropbox/Papers/Reading}"
 PAPER_DIR="$VAULT_PATH/papers/$CITEKEY"
 PDF_PATH="$PAPER_DIR/paper.pdf"
 SUMMARY_PATH="$PAPER_DIR/summary.md"

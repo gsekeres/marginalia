@@ -9,7 +9,7 @@ This guide covers deploying Marginalia with:
 ```
 ┌─────────────────────────────────────┐
 │     Your Hugo Site (Static)         │
-│  gabesekeres.com/litvault/          │
+│  gabesekeres.com/marginalia/          │
 │  └── dashboard.html                 │
 └─────────────────────────────────────┘
               │
@@ -17,7 +17,7 @@ This guide covers deploying Marginalia with:
               ▼
 ┌─────────────────────────────────────┐
 │     Render (Python Backend)          │
-│  litvault-api.onrender.com          │
+│  marginalia-api.onrender.com          │
 │  ├── FastAPI server                  │
 │  ├── Claude Code CLI (Node.js)      │
 │  └── Persistent disk (vault data)   │
@@ -124,21 +124,21 @@ Copy the dashboard HTML to your Hugo site:
 
 ```bash
 # From Marginalia repo
-cp app/index.html /path/to/mysite-hugo/static/litvault/dashboard.html
+cp app/index.html /path/to/mysite-hugo/static/marginalia/dashboard.html
 ```
 
 ### 3.2 Update API URL in Dashboard
 
-Edit `/static/litvault/dashboard.html` and update the API URL:
+Edit `/static/marginalia/dashboard.html` and update the API URL:
 
 ```javascript
 // Configure API endpoint for Render deployment
-window.LITVAULT_API_BASE = 'https://marginalia-api.onrender.com';
+window.MARGINALIA_API_BASE = 'https://marginalia-api.onrender.com';
 ```
 
 ### 3.3 Create Landing Page (Optional)
 
-Create `/content/litvault/_index.md`:
+Create `/content/marginalia/_index.md`:
 
 ```markdown
 ---
@@ -150,7 +150,7 @@ description: "Agent-based academic literature management"
 
 An agent-based tool for managing academic literature.
 
-[**Open Dashboard**](/litvault/dashboard.html)
+[**Open Dashboard**](/marginalia/dashboard.html)
 
 ---
 
@@ -191,7 +191,7 @@ Should return:
 
 ### 4.2 Test Dashboard
 
-1. Open `https://yourdomain.com/litvault/dashboard.html`
+1. Open `https://yourdomain.com/marginalia/dashboard.html`
 2. You should see the dashboard with "API Not Connected" if empty, or stats if you have data
 
 ### 4.3 Test Summarization

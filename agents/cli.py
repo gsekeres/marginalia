@@ -5,6 +5,9 @@ import asyncio
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
+
 from rich.console import Console
 from rich.table import Table
 

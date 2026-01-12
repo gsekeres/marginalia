@@ -28,6 +28,15 @@ class Citation(BaseModel):
     status: str = "unknown"  # in_vault, discovered, unknown
 
 
+class RelatedPaper(BaseModel):
+    """A related paper suggested by Claude."""
+    title: str
+    authors: list[str] = Field(default_factory=list)
+    year: Optional[int] = None
+    why_related: str = ""
+    vault_citekey: Optional[str] = None  # Set if paper exists in vault
+
+
 class Paper(BaseModel):
     """A paper in the vault."""
     citekey: str
@@ -57,6 +66,9 @@ class Paper(BaseModel):
     # Citations (populated after summarization)
     citations: list[Citation] = Field(default_factory=list)
     cited_by: list[str] = Field(default_factory=list)  # citekeys
+
+    # Related papers (Claude-suggested, populated after summarization)
+    related_papers: list[RelatedPaper] = Field(default_factory=list)
 
     # Search metadata
     search_attempts: int = 0
@@ -144,4 +156,5 @@ class SummaryResult(BaseModel):
     citekey: str
     summary_path: Optional[str] = None
     extracted_citations: list[Citation] = Field(default_factory=list)
+    related_papers: list[RelatedPaper] = Field(default_factory=list)
     error: Optional[str] = None

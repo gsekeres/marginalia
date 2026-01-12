@@ -16,7 +16,7 @@
         <div class="max-w-7xl mx-auto px-4 py-6">
             <div class="flex justify-between items-center">
                 <h1 class="text-3xl font-bold text-gray-900">Marginalia</h1>
-                <div class="flex gap-4">
+                <div class="flex gap-4 items-center">
                     <button @click="refreshStats()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
                         Refresh
                     </button>
@@ -24,6 +24,16 @@
                         Import BibTeX
                         <input type="file" accept=".bib" @change="importBibtex($event)" class="hidden">
                     </label>
+                    <div class="flex gap-2">
+                        <input type="text" x-model="importPath"
+                               placeholder="/path/to/references.bib"
+                               class="px-2 py-1 border rounded text-sm w-48">
+                        <button @click="importFromPath()"
+                                :disabled="!importPath"
+                                class="px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
+                            Import Path
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -184,8 +194,8 @@
                                        x-model="selectedPapers"
                                        :disabled="paper.status !== 'discovered'">
                             </td>
-                            <td class="px-4 py-3">
-                                <div class="font-medium text-gray-900" x-text="paper.title"></div>
+                            <td class="px-4 py-3 cursor-pointer" @click="viewPaperDetail(paper.citekey)">
+                                <div class="font-medium text-gray-900 hover:text-blue-600" x-text="paper.title"></div>
                                 <div class="text-sm text-gray-500" x-text="paper.authors?.join(', ')"></div>
                                 <div class="text-xs text-gray-400" x-text="paper.citekey"></div>
                             </td>
@@ -273,14 +283,157 @@
         </div>
     </div>
 
+    <!-- Paper Detail Modal -->
+    <div x-show="showPaperDetail" x-cloak
+         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+         @click.self="closePaperDetail()">
+        <div class="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <!-- Header -->
+            <div class="p-4 border-b flex justify-between items-start">
+                <div class="flex-1 pr-4">
+                    <h2 class="text-xl font-bold" x-text="paperDetail?.title"></h2>
+                    <p class="text-gray-600" x-text="paperDetail?.authors?.join(', ')"></p>
+                    <p class="text-sm text-gray-500">
+                        <span x-text="paperDetail?.journal || 'Working Paper'"></span>
+                        (<span x-text="paperDetail?.year || 'n.d.'"></span>)
+                    </p>
+                </div>
+                <button @click="closePaperDetail()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-y-auto p-4">
+                <!-- Status and Actions -->
+                <div class="flex flex-wrap gap-4 items-center mb-6 p-4 bg-gray-50 rounded">
+                    <span class="px-3 py-1 rounded-full text-sm font-medium"
+                          :class="{
+                              'bg-gray-100 text-gray-700': paperDetail?.status === 'discovered',
+                              'bg-blue-100 text-blue-700': paperDetail?.status === 'wanted',
+                              'bg-green-100 text-green-700': paperDetail?.status === 'downloaded',
+                              'bg-purple-100 text-purple-700': paperDetail?.status === 'summarized',
+                          }"
+                          x-text="paperDetail?.status"></span>
+
+                    <!-- Action buttons based on status -->
+                    <template x-if="paperDetail?.status === 'discovered' || paperDetail?.status === 'wanted'">
+                        <button @click="paperDetailAction('find-pdf')"
+                                class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700">
+                            Find PDF
+                        </button>
+                    </template>
+                    <template x-if="paperDetail?.status === 'downloaded'">
+                        <button @click="paperDetailAction('summarize')"
+                                class="px-3 py-1 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">
+                            Summarize
+                        </button>
+                    </template>
+                    <template x-if="paperDetail?.status === 'summarized'">
+                        <button @click="paperDetailAction('summarize')"
+                                class="px-3 py-1 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">
+                            Re-summarize
+                        </button>
+                    </template>
+                    <template x-if="paperDetail?.pdf_path">
+                        <a :href="`${apiBase}/api/papers/${paperDetail.citekey}/pdf`" target="_blank"
+                           class="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
+                            Download PDF
+                        </a>
+                    </template>
+                </div>
+
+                <!-- Metadata -->
+                <div class="mb-6">
+                    <h3 class="font-bold text-lg mb-2">Details</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm">
+                        <template x-if="paperDetail?.doi">
+                            <div>
+                                <span class="text-gray-500">DOI:</span>
+                                <a :href="`https://doi.org/${paperDetail.doi}`" target="_blank"
+                                   class="text-blue-600 hover:underline" x-text="paperDetail.doi"></a>
+                            </div>
+                        </template>
+                        <template x-if="paperDetail?.url">
+                            <div>
+                                <span class="text-gray-500">URL:</span>
+                                <a :href="paperDetail.url" target="_blank"
+                                   class="text-blue-600 hover:underline">Link</a>
+                            </div>
+                        </template>
+                        <div>
+                            <span class="text-gray-500">Citekey:</span>
+                            <code class="bg-gray-100 px-1 rounded" x-text="paperDetail?.citekey"></code>
+                        </div>
+                        <template x-if="paperDetail?.added_at">
+                            <div>
+                                <span class="text-gray-500">Added:</span>
+                                <span x-text="new Date(paperDetail.added_at).toLocaleDateString()"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Abstract -->
+                <template x-if="paperDetail?.abstract">
+                    <div class="mb-6">
+                        <h3 class="font-bold text-lg mb-2">Abstract</h3>
+                        <p class="text-sm text-gray-700" x-text="paperDetail.abstract"></p>
+                    </div>
+                </template>
+
+                <!-- Summary -->
+                <template x-if="paperSummary">
+                    <div class="mb-6">
+                        <h3 class="font-bold text-lg mb-2">Summary</h3>
+                        <pre class="whitespace-pre-wrap font-sans text-sm bg-gray-50 p-4 rounded" x-text="paperSummary"></pre>
+                    </div>
+                </template>
+
+                <!-- Related Papers -->
+                <template x-if="paperDetail?.related_papers?.length > 0">
+                    <div class="mb-6">
+                        <h3 class="font-bold text-lg mb-2">Related Papers</h3>
+                        <div class="space-y-3">
+                            <template x-for="related in paperDetail.related_papers" :key="related.title">
+                                <div class="p-3 border rounded bg-white">
+                                    <div class="font-medium" x-text="related.title"></div>
+                                    <div class="text-sm text-gray-500">
+                                        <span x-text="related.authors?.join(', ') || 'Unknown authors'"></span>
+                                        (<span x-text="related.year || 'n.d.'"></span>)
+                                    </div>
+                                    <div class="text-sm italic text-gray-600 mt-1" x-text="related.why_related"></div>
+                                    <div class="mt-2">
+                                        <!-- If in vault, show link -->
+                                        <template x-if="related.vault_citekey">
+                                            <button @click="viewPaperDetail(related.vault_citekey)"
+                                                    class="text-blue-600 hover:underline text-sm">
+                                                View in Library
+                                            </button>
+                                        </template>
+                                        <!-- If not in vault, show add button -->
+                                        <template x-if="!related.vault_citekey">
+                                            <button @click="addRelatedPaper(related)"
+                                                    class="text-green-600 hover:underline text-sm">
+                                                + Add to Library
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Configure API endpoint - empty for same-origin, or full URL for external API
-        // Set window.LITVAULT_API_BASE before loading this script for production
-        window.LITVAULT_API_BASE = window.LITVAULT_API_BASE || '';
+        // Set window.MARGINALIA_API_BASE before loading this script for production
+        window.MARGINALIA_API_BASE = window.MARGINALIA_API_BASE || '';
 
         function app() {
             return {
-                apiBase: window.LITVAULT_API_BASE,
+                apiBase: window.MARGINALIA_API_BASE,
                 stats: { by_status: {} },
                 papers: [],
                 totalPapers: 0,
@@ -299,6 +452,11 @@
                 statusType: 'info', // info, success, error
                 statusLinks: null, // manual search links
                 loadingPaper: null, // citekey of paper currently being processed
+                importPath: '', // path for import-from-path feature
+                // Paper detail modal
+                showPaperDetail: false,
+                paperDetail: null,
+                paperSummary: null,
 
                 async init() {
                     await this.refreshStats();
@@ -516,6 +674,100 @@
 
                     await this.refreshStats();
                     await this.loadPapers();
+                },
+
+                async importFromPath() {
+                    if (!this.importPath) return;
+
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/import-bibtex-path`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_path: this.importPath })
+                        });
+                        const data = await res.json();
+
+                        if (res.ok) {
+                            alert(`Imported ${data.added} papers`);
+                            this.importPath = '';
+                            await this.refreshStats();
+                            await this.loadPapers();
+                        } else {
+                            alert(`Error: ${data.detail}`);
+                        }
+                    } catch (e) {
+                        alert(`Error: ${e.message}`);
+                    }
+                },
+
+                async viewPaperDetail(citekey) {
+                    // Fetch paper details
+                    const res = await fetch(`${this.apiBase}/api/papers/${citekey}`);
+                    this.paperDetail = await res.json();
+                    this.paperSummary = null;
+
+                    // Fetch summary if summarized
+                    if (this.paperDetail.status === 'summarized') {
+                        try {
+                            const summaryRes = await fetch(`${this.apiBase}/api/papers/${citekey}/summary`);
+                            const summaryData = await summaryRes.json();
+                            this.paperSummary = summaryData.content;
+                        } catch (e) {
+                            console.log('Could not load summary:', e);
+                        }
+                    }
+
+                    this.showPaperDetail = true;
+                },
+
+                closePaperDetail() {
+                    this.showPaperDetail = false;
+                    this.paperDetail = null;
+                    this.paperSummary = null;
+                },
+
+                async addRelatedPaper(related) {
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/papers/add-related`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                title: related.title,
+                                authors: related.authors,
+                                year: related.year,
+                                source_citekey: this.paperDetail.citekey
+                            })
+                        });
+                        const data = await res.json();
+
+                        if (data.status === 'added') {
+                            alert(`Added "${related.title}" to library`);
+                            // Update the related paper's vault_citekey
+                            related.vault_citekey = data.citekey;
+                            await this.refreshStats();
+                            await this.loadPapers();
+                        } else if (data.status === 'exists') {
+                            alert(`Paper already exists in library`);
+                            related.vault_citekey = data.citekey;
+                        }
+                    } catch (e) {
+                        alert(`Error: ${e.message}`);
+                    }
+                },
+
+                async paperDetailAction(action) {
+                    if (!this.paperDetail) return;
+                    const citekey = this.paperDetail.citekey;
+
+                    if (action === 'find-pdf') {
+                        await this.findPDFSingle(citekey);
+                        // Refresh paper detail
+                        await this.viewPaperDetail(citekey);
+                    } else if (action === 'summarize') {
+                        await this.summarizeSinglePaper(citekey);
+                        // Refresh paper detail
+                        await this.viewPaperDetail(citekey);
+                    }
                 }
             };
         }

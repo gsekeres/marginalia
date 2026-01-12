@@ -1,5 +1,5 @@
 [project]
-name = "litvault"
+name = "marginalia"
 version = "0.1.0"
 description = "Agent-based academic literature management system"
 readme = "README.md"
@@ -31,7 +31,7 @@ dev = [
 ]
 
 [project.scripts]
-litvault = "agents.cli:main"
+marginalia = "agents.cli:main"
 
 [build-system]
 requires = ["hatchling"]

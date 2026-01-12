@@ -16,13 +16,13 @@ Marginalia is an agent-based academic literature management platform. It works w
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                 Static Frontend (Hugo site)                 │
-│            https://gabesekeres.com/litvault/                │
+│            https://gabesekeres.com/marginalia/                │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  FastAPI Backend (Render)                   │
-│              https://litvault-api.onrender.com              │
+│              https://marginalia-api.onrender.com              │
 └─────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┼───────────────┐
@@ -112,8 +112,8 @@ discovered → wanted → downloaded → summarized
 ## Deployment
 
 **Current Setup**:
-- Frontend: Static HTML on Hugo site (`/static/litvault/dashboard.html`)
-- Backend: Render deployment (`https://litvault-api.onrender.com`)
+- Frontend: Static HTML on Hugo site (`/static/marginalia/dashboard.html`)
+- Backend: Render deployment (`https://marginalia-api.onrender.com`)
 - Storage: Persistent disk on Render for vault data
 
 **Environment Variables (Render)**:

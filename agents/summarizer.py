@@ -9,7 +9,7 @@ from typing import Optional
 
 from rich.console import Console
 
-from .models import Citation, Paper, PaperStatus, SummaryResult
+from .models import Citation, Paper, PaperStatus, RelatedPaper, SummaryResult
 
 console = Console()
 
@@ -127,6 +127,7 @@ class Summarizer:
                 citekey=paper.citekey,
                 summary_path=str(summary_path),
                 extracted_citations=citations,
+                related_papers=paper.related_papers,
             )
 
         except Exception as e:
@@ -162,8 +163,17 @@ Output a JSON object with these exact keys:
   "key_contributions": ["contribution 1", "contribution 2", ...],
   "methodology": "Description of methodology used",
   "main_results": ["result 1", "result 2", ...],
-  "related_work": ["paper 1 - brief description", "paper 2 - brief description", ...]
+  "related_work": [
+    {{
+      "title": "Full title of related paper",
+      "authors": ["First Author", "Second Author"],
+      "year": 2020,
+      "why_related": "Brief explanation of how this paper relates"
+    }}
+  ]
 }}
+
+For related_work, suggest 3-5 papers that are closely related based on the content, methodology, or findings. Include papers that a researcher reading this paper would likely want to read next, even if they aren't explicitly cited.
 
 Output ONLY valid JSON, no other text."""
 
@@ -252,8 +262,30 @@ pdf_path: "./paper.pdf"
 ## Related Work
 
 """
+            related_papers = []
             for work in summary_data.get('related_work', []):
-                markdown += f"- {work}\n"
+                if isinstance(work, dict):
+                    # New structured format
+                    title = work.get('title', 'Unknown')
+                    authors = work.get('authors', [])
+                    year = work.get('year')
+                    why = work.get('why_related', '')
+                    authors_str = ', '.join(authors) if authors else 'Unknown'
+                    markdown += f"- **{title}** ({authors_str}, {year or 'n.d.'}) - {why}\n"
+
+                    # Create RelatedPaper object
+                    related_papers.append(RelatedPaper(
+                        title=title,
+                        authors=authors if isinstance(authors, list) else [authors],
+                        year=year,
+                        why_related=why,
+                    ))
+                else:
+                    # Old string format fallback
+                    markdown += f"- {work}\n"
+
+            # Store related papers on the paper object
+            paper.related_papers = related_papers
 
             markdown += f"""
 ---

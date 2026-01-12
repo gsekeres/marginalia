@@ -16,6 +16,41 @@ console = Console()
 INDEX_FILENAME = ".marginalia_index.json"
 
 
+def generate_citekey(authors: list[str], year: Optional[int], title: str) -> str:
+    """Generate a citekey from paper metadata.
+
+    Format: firstauthorlastname + year + firstwordoftitle
+    Example: "smith2023algorithmic"
+    """
+    import re
+
+    # Get first author's last name
+    if authors and len(authors) > 0:
+        first_author = authors[0]
+        # Take last word as last name (handles "John Smith" and "Smith, John")
+        parts = first_author.replace(",", "").split()
+        last_name = parts[-1] if parts else "unknown"
+    else:
+        last_name = "unknown"
+
+    # Clean last name (lowercase, alphanumeric only)
+    last_name = re.sub(r'[^a-z]', '', last_name.lower())
+
+    # Get year or use 0000
+    year_str = str(year) if year else "0000"
+
+    # Get first significant word of title (skip articles)
+    skip_words = {"a", "an", "the", "on", "in", "of", "and", "for", "to", "with"}
+    title_words = re.sub(r'[^a-z\s]', '', title.lower()).split()
+    first_word = "paper"
+    for word in title_words:
+        if word not in skip_words and len(word) > 2:
+            first_word = word
+            break
+
+    return f"{last_name}{year_str}{first_word}"
+
+
 class VaultManager:
     """Manages the paper vault and its index for Marginalia."""
 
@@ -76,6 +111,11 @@ class VaultManager:
     def get_paper(self, citekey: str) -> Optional[Paper]:
         """Get a paper by citekey."""
         return self.index.get_paper(citekey)
+
+    def add_paper(self, paper: Paper) -> None:
+        """Add a paper to the vault and save."""
+        self.index.add_paper(paper)
+        self.save_index()
 
     def set_paper_status(self, citekey: str, status: PaperStatus) -> bool:
         """Update a paper's status."""

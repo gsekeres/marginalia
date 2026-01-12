@@ -9,7 +9,6 @@ from typing import Optional
 from urllib.parse import quote_plus, urlparse
 
 import httpx
-from anthropic import Anthropic
 from rich.console import Console
 
 from .models import DownloadResult, Paper, PaperStatus
@@ -42,7 +41,6 @@ class PDFFinder:
         self.vault_path = Path(vault_path)
         self.unpaywall_email = unpaywall_email or os.getenv("UNPAYWALL_EMAIL", "")
         self.semantic_scholar_key = semantic_scholar_key or os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
-        self.anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
 
         # HTTP client with reasonable timeouts
         self.client = httpx.AsyncClient(
@@ -245,15 +243,13 @@ class PDFFinder:
         return None
 
     async def _try_claude_search(self, paper: Paper) -> Optional[str]:
-        """Use Claude to help find PDF by generating smart search strategies."""
-        if not self.anthropic_key:
-            return None
+        """Use Claude Code CLI to help find PDF by generating smart search strategies."""
+        import subprocess
+        import json
 
         try:
-            client = Anthropic(api_key=self.anthropic_key)
-
-            # Ask Claude to suggest where to find this paper
-            prompt = f"""I need to find a PDF of this academic paper:
+            # Build the prompt for Claude
+            prompt = f"""Find PDF URLs for this academic paper:
 
 Title: {paper.title}
 Authors: {', '.join(paper.authors) if paper.authors else 'Unknown'}
@@ -261,29 +257,39 @@ Year: {paper.year}
 Journal: {paper.journal or 'Unknown'}
 DOI: {paper.doi or 'Not available'}
 
-Please suggest 3-5 specific URLs where I might find a free PDF of this paper. Consider:
-1. Author personal/academic websites (look up author affiliations)
-2. Working paper repositories (NBER, SSRN, arXiv, CEPR, IZA, etc.)
-3. University repositories
-4. Open access versions
+Find only download links that are publicly available. Search the authors' websites if you cannot find the paper elsewhere publicly.
 
-Return ONLY a JSON array of URLs to try, no explanation. Example:
+Return ONLY a JSON array of 1-5 specific URLs to try, no explanation. Example:
 ["https://example.edu/~author/paper.pdf", "https://ssrn.com/abstract=123456"]
 
 If you cannot suggest specific URLs, return an empty array: []"""
 
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=500,
-                messages=[{"role": "user", "content": prompt}]
+            console.print("[dim]Asking Claude for PDF suggestions...[/dim]")
+
+            # Run Claude Code CLI
+            result = subprocess.run(
+                ["claude", "-p", prompt, "--output-format", "json"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=os.environ.copy(),
             )
 
-            # Parse the response
-            text = response.content[0].text.strip()
+            if result.returncode != 0:
+                console.print(f"[yellow]Claude CLI error: {result.stderr[:100]}[/yellow]")
+                return None
+
+            # Parse the JSON response from Claude CLI
+            try:
+                cli_response = json.loads(result.stdout)
+                # The response format is {"result": "...", ...}
+                text = cli_response.get("result", "")
+            except json.JSONDecodeError:
+                text = result.stdout
+
             # Extract JSON array from response
             match = re.search(r'\[.*\]', text, re.DOTALL)
             if match:
-                import json
                 urls = json.loads(match.group())
 
                 for url in urls:
@@ -303,6 +309,8 @@ If you cannot suggest specific URLs, return an empty array: []"""
                     except Exception:
                         continue
 
+        except subprocess.TimeoutExpired:
+            console.print("[yellow]Claude search timed out[/yellow]")
         except Exception as e:
             console.print(f"[yellow]Claude search error: {e}[/yellow]")
 
