@@ -1,4 +1,4 @@
-"""Data models for LitVault papers and metadata."""
+"""Data models for Marginalia papers and metadata."""
 
 from datetime import datetime
 from enum import Enum

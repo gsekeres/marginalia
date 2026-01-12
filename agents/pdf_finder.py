@@ -6,9 +6,10 @@ import re
 import time
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 import httpx
+from anthropic import Anthropic
 from rich.console import Console
 
 from .models import DownloadResult, Paper, PaperStatus
@@ -41,13 +42,14 @@ class PDFFinder:
         self.vault_path = Path(vault_path)
         self.unpaywall_email = unpaywall_email or os.getenv("UNPAYWALL_EMAIL", "")
         self.semantic_scholar_key = semantic_scholar_key or os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+        self.anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
 
         # HTTP client with reasonable timeouts
         self.client = httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
             headers={
-                "User-Agent": "LitVault/0.1 (Academic Research Tool; mailto:gsekeres@github.com)"
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
             }
         )
 
@@ -72,6 +74,8 @@ class PDFFinder:
             ("unpaywall", self._try_unpaywall),
             ("semantic_scholar", self._try_semantic_scholar),
             ("nber", self._try_nber),
+            ("google_scholar", self._try_google_scholar),
+            ("claude_search", self._try_claude_search),
         ]
 
         for source_name, source_func in sources:
@@ -193,6 +197,117 @@ class PDFFinder:
 
         return None
 
+    async def _try_google_scholar(self, paper: Paper) -> Optional[str]:
+        """Try to find PDF via Google Scholar search."""
+        if not paper.authors:
+            return None
+
+        # Search for author's website with PDF
+        first_author = paper.authors[0]
+        last_name = first_author.split()[-1]
+
+        # Try common academic domains
+        queries = [
+            f'"{paper.title}" filetype:pdf',
+            f'{last_name} "{paper.title[:40]}" pdf',
+        ]
+
+        for query in queries:
+            try:
+                # Use DuckDuckGo HTML search (more permissive than Google)
+                search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+                response = await self.client.get(search_url)
+
+                if response.status_code == 200:
+                    # Look for PDF links in the response
+                    text = response.text
+                    # Find URLs that end in .pdf
+                    pdf_urls = re.findall(r'href="(https?://[^"]+\.pdf)"', text, re.IGNORECASE)
+                    pdf_urls += re.findall(r'uddg=([^&]+\.pdf)', text)  # DuckDuckGo redirect format
+
+                    for url in pdf_urls[:5]:  # Check first 5 PDF links
+                        try:
+                            # URL decode if needed
+                            from urllib.parse import unquote
+                            url = unquote(url)
+
+                            # Verify it's accessible
+                            check = await self.client.head(url, timeout=10)
+                            if check.status_code == 200:
+                                content_type = check.headers.get("content-type", "")
+                                if "pdf" in content_type.lower():
+                                    return url
+                        except Exception:
+                            continue
+            except Exception as e:
+                console.print(f"[yellow]Google Scholar search error: {e}[/yellow]")
+
+        return None
+
+    async def _try_claude_search(self, paper: Paper) -> Optional[str]:
+        """Use Claude to help find PDF by generating smart search strategies."""
+        if not self.anthropic_key:
+            return None
+
+        try:
+            client = Anthropic(api_key=self.anthropic_key)
+
+            # Ask Claude to suggest where to find this paper
+            prompt = f"""I need to find a PDF of this academic paper:
+
+Title: {paper.title}
+Authors: {', '.join(paper.authors) if paper.authors else 'Unknown'}
+Year: {paper.year}
+Journal: {paper.journal or 'Unknown'}
+DOI: {paper.doi or 'Not available'}
+
+Please suggest 3-5 specific URLs where I might find a free PDF of this paper. Consider:
+1. Author personal/academic websites (look up author affiliations)
+2. Working paper repositories (NBER, SSRN, arXiv, CEPR, IZA, etc.)
+3. University repositories
+4. Open access versions
+
+Return ONLY a JSON array of URLs to try, no explanation. Example:
+["https://example.edu/~author/paper.pdf", "https://ssrn.com/abstract=123456"]
+
+If you cannot suggest specific URLs, return an empty array: []"""
+
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=500,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            # Parse the response
+            text = response.content[0].text.strip()
+            # Extract JSON array from response
+            match = re.search(r'\[.*\]', text, re.DOTALL)
+            if match:
+                import json
+                urls = json.loads(match.group())
+
+                for url in urls:
+                    try:
+                        console.print(f"[dim]Trying Claude-suggested URL: {url[:60]}...[/dim]")
+                        # Check if it's a valid PDF
+                        check = await self.client.head(url, timeout=10)
+                        if check.status_code == 200:
+                            content_type = check.headers.get("content-type", "")
+                            if "pdf" in content_type.lower():
+                                return url
+                        # Also try GET in case HEAD doesn't work
+                        response = await self.client.get(url, timeout=15)
+                        if response.status_code == 200:
+                            if response.content[:4] == b"%PDF":
+                                return url
+                    except Exception:
+                        continue
+
+        except Exception as e:
+            console.print(f"[yellow]Claude search error: {e}[/yellow]")
+
+        return None
+
     async def _download_pdf(self, paper: Paper, url: str, source: str) -> Optional[Path]:
         """Download a PDF to the vault."""
         try:
@@ -214,7 +329,8 @@ class PDFFinder:
             with open(pdf_path, "wb") as f:
                 f.write(response.content)
 
-            return pdf_path
+            # Return path relative to vault (e.g., "papers/citekey/paper.pdf")
+            return pdf_path.relative_to(self.vault_path)
 
         except Exception as e:
             console.print(f"[red]Download error: {e}[/red]")

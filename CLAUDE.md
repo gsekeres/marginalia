@@ -1,24 +1,28 @@
-# LitVault Development Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-LitVault is an agent-based academic literature management system. It automates:
+Marginalia is an agent-based academic literature management platform. It works with users' existing Claude Code subscriptions to automate:
 - PDF discovery and download from open access sources
 - Text extraction and structured summarization using Claude
 - Citation graph building with Obsidian-compatible wikilinks
+
+**Production Vision**: A hosted platform where researchers can bring their bibliography, and Marginalia handles finding PDFs and generating summaries using their Claude subscription.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Web Dashboard (FastAPI)                │
-│                    http://localhost:8000                    │
+│                 Static Frontend (Hugo site)                 │
+│            https://gabesekeres.com/litvault/                │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     VaultManager                            │
-│           (Index management, paper tracking)                │
+│                  FastAPI Backend (Render)                   │
+│              https://litvault-api.onrender.com              │
 └─────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┼───────────────┐
@@ -27,49 +31,67 @@ LitVault is an agent-based academic literature management system. It automates:
         │ BibTeX   │   │ PDF Finder   │  │ Summarizer   │
         │ Parser   │   │ Agent        │  │ Agent        │
         └──────────┘   └──────────────┘  └──────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────┐
+                                    │ Claude Code CLI  │
+                                    │ (user's OAuth)   │
+                                    └──────────────────┘
 ```
-
-## Key Files
-
-- `agents/api.py` - FastAPI web dashboard and API endpoints
-- `agents/cli.py` - Command-line interface
-- `agents/pdf_finder.py` - PDF search agent (Unpaywall, Semantic Scholar, NBER)
-- `agents/summarizer.py` - Claude-based summarization
-- `agents/vault.py` - Vault management and index
-- `agents/models.py` - Pydantic data models
-- `app/index.html` - Web dashboard frontend (Alpine.js + Tailwind)
 
 ## Development Commands
 
 ```bash
-# Install in dev mode
+# Install
 pip install -e ".[dev]"
 
-# Run the web server
-python -m agents.api
+# Run locally
+python -m agents.api                    # Start server at localhost:8000
 
 # CLI commands
-python -m agents.cli status
-python -m agents.cli import references.bib
-python -m agents.cli search "collusion"
-python -m agents.cli want --all
-python -m agents.cli find --limit 5
-python -m agents.cli summarize --limit 5
+python -m agents.cli status             # Vault statistics
+python -m agents.cli import refs.bib    # Import bibliography
+python -m agents.cli want --all         # Mark all papers as wanted
+python -m agents.cli find --limit 5     # Find PDFs (rate limited)
+python -m agents.cli summarize --limit 5 # Summarize papers
 ```
+
+## Key Files
+
+- `agents/api.py` - FastAPI endpoints, background job management
+- `agents/pdf_finder.py` - Multi-source PDF search (Unpaywall, Semantic Scholar, NBER)
+- `agents/summarizer.py` - Claude Code CLI integration, JSON parsing to markdown
+- `agents/vault.py` - Index management, paper tracking
+- `app/index.html` - Local development dashboard (Alpine.js + Tailwind)
 
 ## Data Flow
 
-1. **Import**: BibTeX → `VaultIndex` (stored in `.litvault_index.json`)
-2. **Mark Wanted**: User selects papers → status changes to "wanted"
-3. **Find PDF**: PDFFinder searches sources → downloads to `vault/papers/[citekey]/paper.pdf`
-4. **Summarize**: Summarizer extracts text → generates `vault/papers/[citekey]/summary.md`
+1. **Import**: BibTeX → VaultIndex (`.marginalia_index.json`)
+2. **Mark Wanted**: User selects papers → status = "wanted"
+3. **Find PDF**: PDFFinder searches sources → `vault/papers/[citekey]/paper.pdf`
+4. **Summarize**: Extract text → Claude CLI → JSON → `vault/papers/[citekey]/summary.md`
 5. **Link**: Wikilinks connect papers → viewable in Obsidian
+
+## Summarization (Claude Code CLI)
+
+The summarizer shells out to `claude -p` with JSON output:
+- Requires `CLAUDE_CODE_OAUTH_TOKEN` in `.env` (from `claude setup-token`)
+- **Critical**: Do NOT set `ANTHROPIC_API_KEY` - the CLI prefers it over OAuth
+- Pass `env=os.environ.copy()` to subprocess to inherit the token
+
+```python
+result = subprocess.run(
+    ["claude", "-p", prompt, "--output-format", "json"],
+    capture_output=True,
+    env=os.environ.copy(),  # Required for OAuth token
+)
+```
 
 ## Paper Status Flow
 
 ```
 discovered → wanted → downloaded → summarized
-                ↘ (if not found)
+                ↘ (not found)
                   → manual queue (with search links)
 ```
 
@@ -78,36 +100,34 @@ discovered → wanted → downloaded → summarized
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/stats` | Vault statistics |
-| GET | `/api/papers` | List papers (filterable) |
-| GET | `/api/papers/{citekey}` | Get single paper |
+| GET | `/api/papers` | List papers (filter by status, search) |
 | POST | `/api/papers/mark-wanted` | Mark papers as wanted |
-| POST | `/api/find-pdfs` | Start PDF finding job |
-| POST | `/api/summarize` | Start summarization job |
-| GET | `/api/jobs` | List active jobs |
+| POST | `/api/find-pdfs` | Batch PDF finding job |
+| POST | `/api/papers/{citekey}/find-pdf` | Find single PDF |
+| POST | `/api/summarize` | Batch summarization job |
+| POST | `/api/papers/{citekey}/summarize` | Summarize/re-summarize single |
 | POST | `/api/papers/{citekey}/upload-pdf` | Upload PDF manually |
 | GET | `/api/manual-queue` | Papers needing manual download |
 
+## Deployment
+
+**Current Setup**:
+- Frontend: Static HTML on Hugo site (`/static/litvault/dashboard.html`)
+- Backend: Render deployment (`https://litvault-api.onrender.com`)
+- Storage: Persistent disk on Render for vault data
+
+**Environment Variables (Render)**:
+- `CLAUDE_CODE_OAUTH_TOKEN` - Required for summarization
+- `UNPAYWALL_EMAIL` - For better rate limits
+- `VAULT_PATH` - Path to vault directory
+
 ## Extending
 
-### Adding a new PDF source
+### Adding a PDF source
+Edit `agents/pdf_finder.py`, add method `_try_new_source()`, add to sources list in `find_pdf()`.
 
-Edit `agents/pdf_finder.py`:
+### Modifying summary format
+Edit prompt in `agents/summarizer.py` `_generate_summary()`.
 
-```python
-async def _try_new_source(self, paper: Paper) -> Optional[str]:
-    # Your logic here
-    return pdf_url_or_none
-```
-
-Add to the sources list in `find_pdf()`.
-
-### Modifying the summary format
-
-Edit the prompt in `agents/summarizer.py` `_generate_summary()`.
-
-### Adding new CLI commands
-
-Edit `agents/cli.py` and add:
-1. A new `cmd_<name>` function
-2. A new subparser in `main()`
-3. Add to the commands dispatch dict
+### Adding CLI commands
+Edit `agents/cli.py`: add `cmd_<name>` function, add subparser in `main()`.

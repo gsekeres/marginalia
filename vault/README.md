@@ -1,4 +1,4 @@
-# LitVault - Obsidian Vault
+# Marginalia - Obsidian Vault
 
 This folder is your Obsidian-compatible literature vault.
 

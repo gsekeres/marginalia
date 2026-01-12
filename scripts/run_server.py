@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start the LitVault web server."""
+"""Start the Marginalia web server."""
 
 import os
 import sys
@@ -14,7 +14,7 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8000"))
 
-    print(f"Starting LitVault server at http://{host}:{port}")
+    print(f"Starting Marginalia server at http://{host}:{port}")
     print("Press Ctrl+C to stop")
 
     run_server(host=host, port=port)

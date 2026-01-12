@@ -1,193 +1,114 @@
-# LitVault
+# Marginalia
 
-An agent-based academic literature management system that automates the tedious parts of building a research library.
+An agent-based academic literature management platform that works with your Claude Code subscription.
 
 ## What It Does
 
-LitVault uses AI agents to:
+Marginalia uses AI agents to automate the tedious parts of building a research library:
+
 1. **Find PDFs** - Searches Unpaywall, Semantic Scholar, NBER, and other open-access sources
 2. **Summarize Papers** - Extracts text and generates structured summaries using Claude
 3. **Build Citation Graphs** - Links papers together through their citations
 4. **Create an Obsidian Vault** - All summaries are Obsidian-compatible markdown with wikilinks
 
-## Quick Start
+**Key Feature**: Uses your existing Claude Pro/Max subscription via Claude Code CLI - no separate API credits needed.
+
+## Quick Start (Local Development)
 
 ### 1. Install Dependencies
 
 ```bash
-cd /path/to/LitVault
+cd Marginalia
 pip install -e .
 ```
 
-### 2. Set Up Environment
+### 2. Set Up Claude Code CLI
+
+Summarization requires Claude Code CLI with your subscription:
 
 ```bash
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Install Claude Code CLI (requires Node.js 18+)
+npm install -g @anthropic-ai/claude-code
+
+# Authenticate (opens browser)
+claude setup-token
+
+# Add token to .env
+echo 'CLAUDE_CODE_OAUTH_TOKEN=<your-token>' >> .env
 ```
 
-### 3. Import Your Bibliography
+**Important**: Do NOT set `ANTHROPIC_API_KEY` in `.env` - the CLI will prefer it over OAuth and fail without API credits.
 
-```bash
-# Using CLI
-python -m agents.cli import references.bib
-
-# Or start the web dashboard
-python -m agents.api
-# Then open http://localhost:8000 and use the Import button
-```
-
-### 4. Find and Summarize Papers
-
-```bash
-# Mark papers you want
-python -m agents.cli want --all  # or specific citekeys
-
-# Find PDFs (searches open access sources)
-python -m agents.cli find
-
-# Summarize downloaded papers
-python -m agents.cli summarize
-```
-
-## Web Dashboard
-
-The web dashboard provides a visual interface for managing your library:
+### 3. Run Locally
 
 ```bash
 python -m agents.api
 # Open http://localhost:8000
 ```
 
-Features:
-- Browse papers by status
-- Search by title/author
-- Mark papers as wanted
-- Upload PDFs manually
-- View summaries
-- Track download jobs
+## Usage
+
+1. Import your BibTeX bibliography
+2. Mark papers you want to read
+3. Click "Find PDFs" - Marginalia searches open-access sources
+4. Papers that can't be found go to a manual queue with search links
+5. Click "Summarize" to generate structured summaries
+6. Open the vault folder in Obsidian for linked notes
 
 ## CLI Commands
 
 ```bash
-python -m agents.cli <command>
-
-Commands:
-  status      Show vault statistics
-  import      Import papers from BibTeX file
-  search      Search for papers by title/author
-  want        Mark papers for download
-  find        Find and download PDFs
-  summarize   Generate summaries for downloaded papers
-  register    Register a manually downloaded PDF
-  manual      Show papers needing manual download
-  list        List papers with optional filters
-  index       Generate Obsidian index page
+python -m agents.cli status      # Show vault statistics
+python -m agents.cli import X.bib # Import papers from BibTeX
+python -m agents.cli want --all   # Mark papers for download
+python -m agents.cli find         # Find and download PDFs
+python -m agents.cli summarize    # Generate summaries
+python -m agents.cli manual       # Show manual download queue
 ```
 
-## Obsidian Integration
+## Deployment
 
-The `vault/` folder is an Obsidian-compatible vault:
+See [DEPLOY.md](DEPLOY.md) for deployment instructions.
 
-1. Open Obsidian
-2. "Open folder as vault" → select `vault/`
-3. Papers appear as linked notes with `[[wikilinks]]`
-
-Each paper gets:
-- `summary.md` - Structured summary with frontmatter
-- `paper.pdf` - The downloaded PDF
-- `full_text.md` - Extracted text (optional)
+**Current Architecture**:
+- Frontend: Static HTML hosted on your website
+- Backend: FastAPI on Render (or any Python host)
+- Storage: Persistent disk for vault data
 
 ## How PDF Finding Works
 
 The PDF Finder agent searches these sources in order:
-
-1. **Unpaywall** - Free API for finding open-access versions via DOI
+1. **Unpaywall** - Open-access versions via DOI
 2. **Semantic Scholar** - Academic search with open-access PDFs
-3. **NBER** - Working papers from National Bureau of Economic Research
-4. **Manual Queue** - If no PDF found, generates search links for you
+3. **NBER** - National Bureau of Economic Research working papers
+4. **Manual Queue** - If not found, generates search links
 
 Expected success rate: ~70-85% for economics papers.
 
-Papers that can't be found automatically are added to the "Manual Download Queue" with pre-generated search links. You can then:
-- Click the links to search manually
-- Download the PDF yourself
-- Upload it through the web dashboard
-
 ## How Summarization Works
 
-The Summarizer agent:
-1. Extracts text from PDF using `pdfplumber` or `PyMuPDF`
-2. Sends text to Claude with a structured prompt
-3. Generates a summary with:
+1. Extracts text from PDF using `pdfplumber`
+2. Sends to Claude Code CLI with JSON output format
+3. Parses response into structured markdown:
    - Overview paragraph
    - Key contributions
    - Methodology
    - Main results
-   - Related work
-4. Extracts citations and creates Obsidian wikilinks
-
-## Directory Structure
-
-```
-LitVault/
-├── agents/              # Python agents and API
-│   ├── api.py          # FastAPI web dashboard
-│   ├── cli.py          # Command-line interface
-│   ├── pdf_finder.py   # PDF search agent
-│   ├── summarizer.py   # Summary generation agent
-│   ├── vault.py        # Vault management
-│   ├── models.py       # Data models
-│   └── bibtex_parser.py
-├── app/                 # Web frontend
-│   └── index.html      # Dashboard UI
-├── vault/              # Obsidian vault
-│   ├── papers/         # Paper folders
-│   ├── templates/      # Summary templates
-│   └── index.md        # Auto-generated index
-├── scripts/            # Utility scripts
-├── references.bib      # Master bibliography
-├── .env               # Environment variables (create from .env.example)
-└── pyproject.toml     # Python project config
-```
+   - Related work with wikilinks
 
 ## Configuration
 
-### Environment Variables
-
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `ANTHROPIC_API_KEY` | Claude API key for summaries | Yes |
-| `UNPAYWALL_EMAIL` | Email for Unpaywall API (better rate limits) | No |
-| `SEMANTIC_SCHOLAR_API_KEY` | Semantic Scholar API key | No |
-| `VAULT_PATH` | Path to vault directory | No (defaults to `./vault`) |
-
-### API Rate Limits
-
-The agents include rate limiting to be respectful to APIs:
-- Minimum 1 second between requests
-- Automatic retries with backoff
-
-## Costs
-
-- **PDF Finding**: Free (uses open APIs)
-- **Summarization**: ~$0.01-0.03 per paper (Claude Sonnet)
-- **Storage**: ~1-2MB per paper (PDF + markdown)
-
-For 344 papers: approximately $3-10 for full summarization.
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token from `claude setup-token` | Yes |
+| `UNPAYWALL_EMAIL` | Email for better Unpaywall rate limits | No |
+| `SEMANTIC_SCHOLAR_API_KEY` | For higher rate limits | No |
+| `VAULT_PATH` | Path to vault directory (default: `./vault`) | No |
 
 ## License
 
-MIT License - see LICENSE file.
+MIT License
 
 ## Contributing
 
 Contributions welcome! Please open an issue or PR on GitHub.
-
-## Acknowledgments
-
-Built with:
-- [Anthropic Claude](https://www.anthropic.com/) for summarization
-- [FastAPI](https://fastapi.tiangolo.com/) for the web dashboard
-- [Obsidian](https://obsidian.md/) for the knowledge graph
-- [Unpaywall](https://unpaywall.org/) for open access lookup

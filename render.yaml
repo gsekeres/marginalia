@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: marginalia-api
+    runtime: python
+    plan: starter
+    buildCommand: |
+      pip install -e .
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+      npm install -g @anthropic-ai/claude-code
+    startCommand: uvicorn agents.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/stats
+    envVars:
+      - key: CLAUDE_CODE_OAUTH_TOKEN
+        sync: false  # Set in Render dashboard - DO NOT use ANTHROPIC_API_KEY
+      - key: UNPAYWALL_EMAIL
+        sync: false  # Optional - improves rate limits
+      - key: VAULT_PATH
+        value: /var/data/vault
+    disk:
+      name: vault-data
+      mountPath: /var/data
+      sizeGB: 1

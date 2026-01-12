@@ -2,11 +2,11 @@
 
 import os
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from anthropic import Anthropic
 from rich.console import Console
 
 from .models import Citation, Paper, PaperStatus, SummaryResult
@@ -62,15 +62,11 @@ def clean_extracted_text(text: str) -> str:
 
 
 class Summarizer:
-    """Agent that summarizes academic papers using Claude."""
+    """Agent that summarizes academic papers using Claude Code CLI."""
 
     def __init__(self, vault_path: Path, api_key: Optional[str] = None):
         self.vault_path = Path(vault_path)
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY required for summarization")
-
-        self.client = Anthropic(api_key=self.api_key)
+        # API key no longer required - we use Claude Code CLI instead
 
     def summarize(self, paper: Paper) -> SummaryResult:
         """Generate a structured summary for a paper."""
@@ -111,15 +107,20 @@ class Summarizer:
         if len(text) > max_chars:
             text = text[:max_chars] + "\n\n[TRUNCATED]"
 
-        # Generate summary with Claude
-        console.print("[blue]Generating summary with Claude...[/blue]")
+        # Generate summary with Claude Code CLI
+        console.print("[blue]Generating summary with Claude Code...[/blue]")
 
         try:
-            summary_content = self._generate_summary(paper, text)
-            citations = self._extract_citations(text)
+            # Define summary path
+            paper_dir = self.vault_path / "papers" / paper.citekey
+            paper_dir.mkdir(parents=True, exist_ok=True)
+            summary_path = paper_dir / "summary.md"
 
-            # Save summary to vault
-            summary_path = self._save_summary(paper, summary_content, citations)
+            # Generate summary (Claude Code writes directly to file)
+            summary_content = self._generate_summary(paper, text, summary_path)
+
+            # Extract citations from the generated summary
+            citations = self._extract_citations(summary_content)
 
             return SummaryResult(
                 success=True,
@@ -135,9 +136,16 @@ class Summarizer:
                 error=str(e),
             )
 
-    def _generate_summary(self, paper: Paper, text: str) -> str:
-        """Use Claude to generate a structured summary."""
-        prompt = f"""You are an academic research assistant. Summarize this economics/political science paper.
+    def _generate_summary(self, paper: Paper, text: str, summary_path: Path) -> str:
+        """Use Claude Code CLI to generate a structured summary."""
+        import json as json_module
+        paper_dir = self.vault_path / "papers" / paper.citekey
+
+        console.print("[blue]Running Claude Code for summarization...[/blue]")
+
+        try:
+            # Ask Claude to output JSON that we'll parse into markdown
+            json_prompt = f"""Summarize this academic paper and output a JSON object.
 
 PAPER METADATA:
 Title: {paper.title}
@@ -145,35 +153,129 @@ Authors: {paper.authors_str}
 Year: {paper.year}
 Journal: {paper.journal or 'Working Paper'}
 
-FULL TEXT:
-{text}
+EXTRACTED TEXT:
+{text[:30000]}
 
-Please provide a structured summary with these sections:
+Output a JSON object with these exact keys:
+{{
+  "summary": "One paragraph summary of what the paper does and finds",
+  "key_contributions": ["contribution 1", "contribution 2", ...],
+  "methodology": "Description of methodology used",
+  "main_results": ["result 1", "result 2", ...],
+  "related_work": ["paper 1 - brief description", "paper 2 - brief description", ...]
+}}
+
+Output ONLY valid JSON, no other text."""
+
+            result = subprocess.run(
+                ["claude", "-p", json_prompt, "--output-format", "json"],
+                capture_output=True,
+                text=True,
+                timeout=180,
+                cwd=str(paper_dir),
+                env=os.environ.copy(),
+            )
+
+            console.print(f"[dim]Claude Code return code: {result.returncode}[/dim]")
+            if result.stderr:
+                console.print(f"[yellow]Claude Code stderr: {result.stderr[:500]}[/yellow]")
+
+            if result.returncode != 0:
+                error_details = result.stderr or result.stdout or "No output"
+                raise Exception(f"Claude Code failed (exit {result.returncode}): {error_details[:500]}")
+
+            # Parse the JSON response
+            raw_output = result.stdout.strip()
+            if not raw_output:
+                raise Exception("Claude Code returned empty output")
+
+            # The output format is JSON with a "result" field containing the actual response
+            try:
+                response_json = json_module.loads(raw_output)
+                # Extract the result field which contains Claude's response
+                claude_response = response_json.get("result", raw_output)
+
+                # Try to parse Claude's response as JSON
+                # It might be a string containing JSON, so we need to parse it
+                if isinstance(claude_response, str):
+                    # Find JSON in the response (it might have extra text)
+                    json_match = re.search(r'\{[\s\S]*\}', claude_response)
+                    if json_match:
+                        summary_data = json_module.loads(json_match.group())
+                    else:
+                        raise Exception("Could not find JSON in Claude's response")
+                else:
+                    summary_data = claude_response
+            except json_module.JSONDecodeError as e:
+                console.print(f"[yellow]JSON parse error, trying to extract: {e}[/yellow]")
+                # Try to find JSON in raw output
+                json_match = re.search(r'\{[\s\S]*\}', raw_output)
+                if json_match:
+                    summary_data = json_module.loads(json_match.group())
+                else:
+                    raise Exception(f"Could not parse JSON from Claude's response: {raw_output[:500]}")
+
+            # Build markdown from the parsed JSON
+            markdown = f"""---
+title: "{paper.title}"
+authors: {paper.authors}
+year: {paper.year}
+journal: "{paper.journal or 'Working Paper'}"
+citekey: "{paper.citekey}"
+doi: "{paper.doi or ''}"
+status: "summarized"
+pdf_path: "./paper.pdf"
+---
 
 ## Summary
-One paragraph (3-5 sentences) explaining what this paper does and finds.
+
+{summary_data.get('summary', 'No summary available.')}
 
 ## Key Contributions
-3-5 bullet points listing the main contributions of this paper.
 
+"""
+            for contrib in summary_data.get('key_contributions', []):
+                markdown += f"- {contrib}\n"
+
+            markdown += f"""
 ## Methodology
-Describe the methodology used (theoretical model, empirical analysis, experimental, computational, etc.). 1-2 paragraphs.
+
+{summary_data.get('methodology', 'No methodology description available.')}
 
 ## Main Results
-3-5 bullet points summarizing the key findings.
 
+"""
+            for result_item in summary_data.get('main_results', []):
+                markdown += f"- {result_item}\n"
+
+            markdown += """
 ## Related Work
-List 3-5 of the most important papers this work builds on or relates to, with brief explanations of the connection.
 
-Be concise but thorough. Focus on the economic/scientific contribution, not administrative details."""
+"""
+            for work in summary_data.get('related_work', []):
+                markdown += f"- {work}\n"
 
-        response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}]
-        )
+            markdown += f"""
+---
+PDF: [[paper.pdf]]
+BibTeX key: `{paper.citekey}`
+"""
 
-        return response.content[0].text
+            # Write the summary file
+            with open(summary_path, "w", encoding="utf-8") as f:
+                f.write(markdown)
+
+            console.print(f"[green]Summary written to {summary_path}[/green]")
+            return markdown
+
+        except subprocess.TimeoutExpired:
+            raise Exception("Claude Code timed out after 3 minutes")
+        except FileNotFoundError:
+            raise Exception(
+                "Claude Code CLI not found. Install it with: npm install -g @anthropic-ai/claude-code "
+                "(or use the native installer: curl -fsSL https://claude.ai/install.sh | bash). "
+                "See: https://code.claude.com/docs/en/setup"
+            )
 
     def _extract_citations(self, text: str) -> list[Citation]:
         """Extract citations from the paper text."""
@@ -207,44 +309,7 @@ Be concise but thorough. Focus on the economic/scientific contribution, not admi
 
         return citations[:50]  # Limit to top 50
 
-    def _save_summary(self, paper: Paper, summary_content: str, citations: list[Citation]) -> Path:
-        """Save the summary as a markdown file in the vault."""
-        paper_dir = self.vault_path / "papers" / paper.citekey
-        paper_dir.mkdir(parents=True, exist_ok=True)
-
-        summary_path = paper_dir / "summary.md"
-
-        # Build frontmatter
-        frontmatter = f"""---
-title: "{paper.title}"
-authors: {paper.authors}
-year: {paper.year}
-journal: "{paper.journal or 'Working Paper'}"
-citekey: "{paper.citekey}"
-doi: "{paper.doi or ''}"
-status: "summarized"
-summarized_at: "{datetime.now().isoformat()}"
-pdf_path: "./paper.pdf"
----
-
-"""
-
-        # Add wikilinks to citations for Obsidian
-        content = summary_content
-
-        # Add citations section if we extracted any
-        if citations:
-            content += "\n\n## Extracted Citations\n"
-            for cite in citations[:20]:  # Top 20
-                content += f"- [[{cite.citekey}]] ({cite.authors}, {cite.year})\n"
-
-        # Add navigation links
-        content += "\n\n---\n"
-        content += f"PDF: [[paper.pdf]]\n"
-        content += f"BibTeX key: `{paper.citekey}`\n"
-
-        with open(summary_path, "w", encoding="utf-8") as f:
-            f.write(frontmatter + content)
+    # _save_summary removed - Claude Code now writes the summary directly
 
         # Also save the full extracted text
         text_path = paper_dir / "full_text.md"

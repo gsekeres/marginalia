@@ -1,4 +1,4 @@
-"""Vault Manager - Handles the Obsidian-compatible vault structure."""
+"""Vault Manager - Handles the Obsidian-compatible vault structure for Marginalia."""
 
 import json
 from datetime import datetime
@@ -13,11 +13,11 @@ from .models import Paper, PaperStatus, VaultIndex
 
 console = Console()
 
-INDEX_FILENAME = ".litvault_index.json"
+INDEX_FILENAME = ".marginalia_index.json"
 
 
 class VaultManager:
-    """Manages the paper vault and its index."""
+    """Manages the paper vault and its index for Marginalia."""
 
     def __init__(self, vault_path: Path):
         self.vault_path = Path(vault_path)
@@ -155,7 +155,7 @@ class VaultManager:
         index_md = self.vault_path / "index.md"
 
         content = """---
-title: LitVault Index
+title: Marginalia Index
 ---
 
 # Literature Vault
@@ -210,7 +210,7 @@ title: LitVault Index
         """Print vault statistics."""
         stats = self.index.stats()
 
-        table = Table(title="LitVault Statistics")
+        table = Table(title="Marginalia Statistics")
         table.add_column("Status", style="cyan")
         table.add_column("Count", justify="right", style="green")
 

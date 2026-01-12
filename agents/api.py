@@ -1,9 +1,12 @@
-"""FastAPI web dashboard for LitVault."""
+"""FastAPI web dashboard for Marginalia."""
 
 import asyncio
 import os
 from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,15 +20,21 @@ from .summarizer import Summarizer
 from .vault import VaultManager
 
 app = FastAPI(
-    title="LitVault",
+    title="Marginalia",
     description="Agent-based academic literature management",
     version="0.1.0",
 )
 
-# CORS for local development
+# CORS for local development and production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:1313",  # Hugo dev server
+        "https://gabesekeres.com",
+        "https://www.gabesekeres.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -134,29 +143,64 @@ async def find_pdfs(background_tasks: BackgroundTasks, limit: Optional[int] = No
         "success": 0,
     }
 
-    async def run_find():
-        finder = PDFFinder(vault_path)
-        papers_to_process = wanted[:limit] if limit else wanted
+    def run_find():
+        """Run PDF finding in a sync wrapper."""
+        async def async_find():
+            finder = PDFFinder(vault_path)
+            papers_to_process = wanted[:limit] if limit else wanted
 
-        for paper in papers_to_process:
-            result = await finder.find_pdf(paper)
-            active_jobs[job_id]["completed"] += 1
+            for paper in papers_to_process:
+                result = await finder.find_pdf(paper)
+                active_jobs[job_id]["completed"] += 1
 
-            if result.success:
-                paper.status = PaperStatus.DOWNLOADED
-                paper.pdf_path = result.pdf_path
-                active_jobs[job_id]["success"] += 1
-            else:
-                paper.manual_download_links = result.manual_links
-                paper.search_attempts += 1
+                if result.success:
+                    paper.status = PaperStatus.DOWNLOADED
+                    paper.pdf_path = result.pdf_path
+                    active_jobs[job_id]["success"] += 1
+                else:
+                    paper.manual_download_links = result.manual_links
+                    paper.search_attempts += 1
 
-            vault.save_index()
+                vault.save_index()
 
-        await finder.close()
-        active_jobs[job_id]["status"] = "completed"
+            await finder.close()
+            active_jobs[job_id]["status"] = "completed"
 
-    background_tasks.add_task(asyncio.create_task, run_find())
+        asyncio.run(async_find())
+
+    background_tasks.add_task(run_find)
     return {"job_id": job_id, "total": active_jobs[job_id]["total"]}
+
+
+@app.post("/api/papers/{citekey}/find-pdf")
+async def find_pdf_single(citekey: str):
+    """Find PDF for a single paper."""
+    paper = vault.get_paper(citekey)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    # Mark as wanted if discovered
+    if paper.status == PaperStatus.DISCOVERED:
+        paper.status = PaperStatus.WANTED
+
+    finder = PDFFinder(vault_path)
+    result = await finder.find_pdf(paper)
+    await finder.close()
+
+    if result.success:
+        paper.status = PaperStatus.DOWNLOADED
+        paper.pdf_path = result.pdf_path
+        vault.save_index()
+        return {"status": "success", "pdf_path": result.pdf_path, "source": result.source}
+    else:
+        paper.manual_download_links = result.manual_links
+        paper.search_attempts += 1
+        vault.save_index()
+        return {
+            "status": "not_found",
+            "message": "No open access PDF found",
+            "manual_links": result.manual_links
+        }
 
 
 @app.post("/api/summarize")
@@ -195,6 +239,29 @@ async def summarize_papers(background_tasks: BackgroundTasks, limit: Optional[in
 
     background_tasks.add_task(run_summarize)
     return {"job_id": job_id, "total": active_jobs[job_id]["total"]}
+
+
+@app.post("/api/papers/{citekey}/summarize")
+async def summarize_single_paper(citekey: str):
+    """Summarize or re-summarize a single paper."""
+    paper = vault.get_paper(citekey)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if paper.status not in [PaperStatus.DOWNLOADED, PaperStatus.SUMMARIZED]:
+        raise HTTPException(status_code=400, detail="Paper must be downloaded first")
+
+    # Run summarization
+    summarizer = Summarizer(vault_path)
+    result = summarizer.summarize(paper)
+
+    if result.success:
+        paper.status = PaperStatus.SUMMARIZED
+        paper.summary_path = result.summary_path
+        paper.citations = result.extracted_citations
+        vault.save_index()
+        return {"status": "success", "summary_path": result.summary_path}
+    else:
+        raise HTTPException(status_code=500, detail=result.error)
 
 
 @app.get("/api/jobs/{job_id}")

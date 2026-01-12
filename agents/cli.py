@@ -1,4 +1,4 @@
-"""Command-line interface for LitVault."""
+"""Command-line interface for Marginalia."""
 
 import argparse
 import asyncio
@@ -220,7 +220,7 @@ def cmd_manual(args):
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="LitVault - Agent-based academic literature management"
+        description="Marginalia - Agent-based academic literature management"
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
