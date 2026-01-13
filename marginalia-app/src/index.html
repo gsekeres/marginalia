@@ -1,0 +1,3752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marginalia - Literature Management</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+
+    <!-- Tailwind (for utilities only) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine loaded at end of body -->
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
+
+    <!-- KaTeX for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+    <!-- vis.js for network graph -->
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
+    <style>
+        /* Design Tokens */
+        :root {
+            /* Paper & Ink palette */
+            --bg: #FBF7EF;
+            --surface: #F4EEE3;
+            --surface-hover: #EDE5D6;
+            --border: #E6DDCF;
+            --border-strong: #D4C9B8;
+
+            /* Text hierarchy */
+            --text: #1F2328;
+            --text-muted: #57606A;
+            --text-subtle: #8B949E;
+
+            /* Accent colors */
+            --accent: #22324A;
+            --accent-hover: #2D4263;
+            --accent-muted: #8B3A3A;
+
+            /* Status colors (muted, scholarly) */
+            --status-discovered: #8B949E;
+            --status-wanted: #3B5998;
+            --status-queued: #B08D57;
+            --status-downloaded: #2D6A4F;
+            --status-summarized: #5B4B8A;
+            --status-failed: #9B2C2C;
+
+            /* Spacing scale */
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-6: 24px;
+            --space-8: 32px;
+
+            /* Typography */
+            --font-ui: 'Inter', -apple-system, sans-serif;
+            --font-reading: 'Source Serif 4', Georgia, serif;
+            --font-mono: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+        }
+
+        [x-cloak] { display: none !important; }
+
+        /* Base styles */
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+
+        body {
+            font-family: var(--font-ui);
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* Typography classes */
+        .font-ui { font-family: var(--font-ui); }
+        .font-reading { font-family: var(--font-reading); }
+        .font-mono { font-family: var(--font-mono); }
+
+        .h1 {
+            font-family: var(--font-reading);
+            font-size: 1.75rem;
+            font-weight: 600;
+            line-height: 1.3;
+            color: var(--text);
+        }
+        .h2 {
+            font-family: var(--font-ui);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+        .h3 {
+            font-family: var(--font-ui);
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        /* Layout */
+        .app-shell {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 10;
+        }
+
+        .sidebar-header {
+            padding: var(--space-6);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-family: var(--font-reading);
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .sidebar-nav {
+            padding: var(--space-4);
+            flex: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            border-radius: 6px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            margin-bottom: var(--space-1);
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+
+        .nav-item:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .nav-item.active {
+            background: var(--bg);
+            color: var(--text);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .nav-icon {
+            width: 18px;
+            height: 18px;
+            color: inherit;
+            flex-shrink: 0;
+        }
+
+        .nav-count {
+            margin-left: auto;
+            font-size: 0.75rem;
+            background: var(--bg);
+            padding: 2px 8px;
+            border-radius: 10px;
+            color: var(--text-muted);
+        }
+
+        .sidebar-section {
+            padding: var(--space-4);
+            border-top: 1px solid var(--border);
+        }
+
+        .sidebar-footer {
+            padding: var(--space-4);
+            border-top: 1px solid var(--border);
+        }
+
+        /* Main area */
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            margin-left: 220px; /* Account for fixed sidebar */
+        }
+
+        /* Topbar */
+        .topbar {
+            display: flex;
+            align-items: center;
+            padding: var(--space-4) var(--space-6);
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            gap: var(--space-4);
+        }
+
+        .topbar-left {
+            min-width: 120px;
+        }
+
+        .topbar-center {
+            flex: 1;
+            max-width: 480px;
+        }
+
+        .topbar-right {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+        }
+
+        .search-box {
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: var(--space-2) var(--space-4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            font-size: 0.9375rem;
+            color: var(--text);
+            transition: all 0.15s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(34, 50, 74, 0.1);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-subtle);
+        }
+
+        /* Content area */
+        .content {
+            flex: 1;
+            padding: var(--space-6);
+            overflow-y: auto;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: var(--accent);
+            color: #fff;
+            padding: var(--space-2) var(--space-4);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            padding: var(--space-2) var(--space-4);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-secondary:hover {
+            background: var(--surface-hover);
+            border-color: var(--border-strong);
+        }
+
+        .btn-icon {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.15s ease;
+        }
+
+        .btn-icon:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .btn-text {
+            background: none;
+            border: none;
+            color: var(--accent);
+            padding: var(--space-1) var(--space-2);
+            font-size: 0.875rem;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .btn-text:hover {
+            text-decoration: underline;
+        }
+
+        .link-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 0.875rem;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .link-btn:hover {
+            text-decoration: underline;
+        }
+
+        /* Status badges */
+        .status-badge {
+            font-family: var(--font-ui);
+            font-size: 0.6875rem;
+            font-weight: 500;
+            padding: 3px 10px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            display: inline-block;
+        }
+
+        .status-badge.discovered { background: #F0EDE8; color: var(--status-discovered); border: 1px solid #E0DBD3; }
+        .status-badge.downloaded { background: #E8F4EE; color: var(--status-downloaded); border: 1px solid #C8E4D8; }
+        .status-badge.summarized { background: #F0EBF8; color: var(--status-summarized); border: 1px solid #DCD4EC; }
+
+        /* Status dot */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-dot.discovered { background: var(--status-discovered); }
+        .status-dot.downloaded { background: var(--status-downloaded); }
+        .status-dot.summarized { background: var(--status-summarized); }
+
+        /* Cards */
+        .card {
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+
+        .stat-card {
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-strong);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .stat-card.active {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(34, 50, 74, 0.1);
+        }
+
+        .stat-value {
+            font-family: var(--font-reading);
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: capitalize;
+        }
+
+        /* Papers table */
+        .papers-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .papers-table th {
+            text-align: left;
+            padding: var(--space-3) var(--space-4);
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .papers-table td {
+            padding: var(--space-3) var(--space-4);
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+
+        .paper-row {
+            cursor: pointer;
+            transition: background 0.1s ease;
+        }
+
+        .paper-row:hover {
+            background: var(--surface);
+        }
+
+        .paper-row:hover .paper-row-actions {
+            opacity: 1;
+        }
+
+        .paper-title {
+            font-family: var(--font-reading);
+            font-size: 0.9375rem;
+            font-weight: 500;
+            color: var(--text);
+            line-height: 1.4;
+        }
+
+        .paper-authors {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .paper-citekey {
+            font-family: var(--font-mono);
+            font-size: 0.6875rem;
+            color: var(--text-subtle);
+            margin-top: 2px;
+        }
+
+        .paper-row-actions {
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .paper-row-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: var(--space-1);
+            color: var(--text-muted);
+            border-radius: 4px;
+        }
+
+        .paper-row-actions button:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        /* Paper detail view */
+        .paper-detail {
+            position: fixed;
+            inset: 0;
+            background: var(--bg);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .paper-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-4) var(--space-6);
+            border-bottom: 1px solid var(--border);
+            background: #fff;
+        }
+
+        .paper-detail-actions {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+        }
+
+        .paper-detail-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            min-height: 0; /* Important for flex child to scroll */
+        }
+
+        .paper-margin {
+            width: 200px;
+            padding: var(--space-6);
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+
+        .margin-section {
+            margin-bottom: var(--space-6);
+        }
+
+        .margin-label {
+            display: block;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: var(--space-1);
+        }
+
+        .margin-value {
+            font-size: 0.875rem;
+            color: var(--text);
+        }
+
+        .margin-link {
+            font-size: 0.8125rem;
+            color: var(--accent);
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        .margin-link:hover {
+            text-decoration: underline;
+        }
+
+        .paper-main {
+            flex: 1;
+            padding: var(--space-8);
+            overflow-y: auto;
+            max-width: 800px;
+        }
+
+        .paper-authors-full {
+            font-size: 1rem;
+            color: var(--text-muted);
+            margin-top: var(--space-2);
+            margin-bottom: var(--space-6);
+        }
+
+        .paper-section {
+            margin-bottom: var(--space-8);
+        }
+
+        .paper-section .h2 {
+            margin-bottom: var(--space-3);
+        }
+
+        .body-reading {
+            font-family: var(--font-reading);
+            font-size: 1rem;
+            line-height: 1.7;
+            color: var(--text);
+        }
+
+        /* Markdown content styles */
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+            font-family: var(--font-ui);
+            font-weight: 600;
+            margin-top: var(--space-6);
+            margin-bottom: var(--space-3);
+            color: var(--text);
+        }
+        .markdown-body h2 { font-size: 1.125rem; }
+        .markdown-body h3 { font-size: 1rem; }
+        .markdown-body p { margin-bottom: var(--space-4); }
+        .markdown-body ul, .markdown-body ol {
+            margin-bottom: var(--space-4);
+            padding-left: var(--space-6);
+        }
+        .markdown-body li { margin-bottom: var(--space-2); }
+        .markdown-body strong { font-weight: 600; }
+        .markdown-body em { font-style: italic; }
+        .markdown-body code {
+            font-family: var(--font-mono);
+            font-size: 0.875em;
+            background: var(--surface);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .markdown-body pre {
+            background: var(--surface);
+            padding: var(--space-4);
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: var(--space-4);
+        }
+        .markdown-body pre code {
+            background: none;
+            padding: 0;
+        }
+        .markdown-body blockquote {
+            border-left: 3px solid var(--border-strong);
+            padding-left: var(--space-4);
+            color: var(--text-muted);
+            font-style: italic;
+            margin-bottom: var(--space-4);
+        }
+        .markdown-body hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: var(--space-6) 0;
+        }
+
+        /* Citation block */
+        .citation-block {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: var(--space-4);
+            margin-bottom: var(--space-6);
+        }
+
+        .citation-block-header {
+            font-family: var(--font-ui);
+            font-size: 0.6875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: var(--space-2);
+        }
+
+        .citation-block pre {
+            font-family: var(--font-mono);
+            font-size: 0.8125rem;
+            line-height: 1.5;
+            margin: 0;
+            white-space: pre;
+            overflow-x: auto;
+        }
+
+        /* Related papers */
+        .related-paper-card {
+            padding: var(--space-4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: var(--space-3);
+            background: #fff;
+        }
+
+        .related-paper-title {
+            font-family: var(--font-reading);
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .related-paper-meta {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .related-paper-reason {
+            font-size: 0.875rem;
+            font-style: italic;
+            color: var(--text-muted);
+            margin-top: var(--space-2);
+        }
+
+        .related-paper-actions {
+            margin-top: var(--space-3);
+        }
+
+        /* Queue view */
+        .queue-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            padding: var(--space-4);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: #fff;
+            margin-bottom: var(--space-3);
+        }
+
+        .queue-card-main {
+            flex: 1;
+        }
+
+        .queue-card-actions {
+            display: flex;
+            gap: var(--space-2);
+            flex-shrink: 0;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: var(--space-4);
+            border-radius: 6px;
+            margin-bottom: var(--space-4);
+        }
+
+        .alert-success {
+            background: #E8F4EE;
+            border: 1px solid #C8E4D8;
+            color: var(--status-downloaded);
+        }
+
+        .alert-error {
+            background: #FAEBEB;
+            border: 1px solid #F0D4D4;
+            color: var(--status-failed);
+        }
+
+        .alert-info {
+            background: #EBF0F8;
+            border: 1px solid #D4DEF0;
+            color: var(--status-wanted);
+        }
+
+        .alert-warning {
+            background: #F8F3E8;
+            border: 1px solid #E8DFC8;
+            color: var(--status-queued);
+        }
+
+        /* Job progress */
+        .job-progress {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-2) 0;
+        }
+
+        .job-progress-bar {
+            flex: 1;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .job-progress-fill {
+            height: 100%;
+            background: var(--status-queued);
+            transition: width 0.3s ease;
+        }
+
+        /* Modal overlay */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: var(--space-6);
+        }
+
+        .modal {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            max-width: 500px;
+            width: 100%;
+            max-height: 80vh;
+            overflow: hidden;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-4) var(--space-6);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-body {
+            padding: var(--space-6);
+            overflow-y: auto;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-4);
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+        }
+
+        .pagination-info {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+        }
+
+        .pagination-buttons {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        /* Actions bar */
+        .actions-bar {
+            display: flex;
+            gap: var(--space-3);
+            align-items: center;
+            padding: var(--space-3) var(--space-4);
+            background: var(--surface);
+            border-radius: 6px;
+            margin-bottom: var(--space-4);
+        }
+
+        .actions-bar-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+        }
+
+        /* Checkbox styling */
+        input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        /* View header */
+        .view-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-4);
+        }
+
+        /* Manual queue link */
+        .search-link {
+            font-size: 0.75rem;
+            padding: var(--space-1) var(--space-2);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .search-link:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        /* Browse modal */
+        .browse-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: var(--space-4);
+        }
+
+        .browse-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-3);
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+        }
+
+        .browse-item:last-child {
+            border-bottom: none;
+        }
+
+        .browse-item:hover {
+            background: var(--surface);
+        }
+
+        .browse-item.parent {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .browse-item .icon {
+            width: 16px;
+            text-align: center;
+            color: var(--text-muted);
+        }
+
+        .browse-current {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            padding: var(--space-2) var(--space-3);
+            background: var(--surface);
+            border-radius: 4px;
+            margin-bottom: var(--space-3);
+            word-break: break-all;
+        }
+
+        /* Inline input with browse button */
+        .input-with-browse {
+            display: flex;
+            gap: var(--space-2);
+        }
+
+        .input-with-browse input {
+            flex: 1;
+        }
+
+        .btn-browse {
+            padding: var(--space-2) var(--space-3);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+
+        .btn-browse:hover {
+            background: var(--surface-hover);
+        }
+
+        /* User info in sidebar */
+        .user-info-sidebar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-3) var(--space-4);
+            border-top: 1px solid var(--border);
+            margin-top: var(--space-2);
+        }
+
+        .user-avatar-small {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .user-name-small {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* View toggle buttons */
+        .view-toggle {
+            display: flex;
+            background: var(--surface);
+            border-radius: 6px;
+            padding: 2px;
+        }
+
+        .view-toggle button {
+            padding: 6px 12px;
+            border: none;
+            background: none;
+            border-radius: 4px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .view-toggle button.active {
+            background: white;
+            color: var(--text);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .view-toggle button:hover:not(.active) {
+            color: var(--text);
+        }
+
+        /* PDF Viewer - Split view with notes */
+        .pdf-split-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            height: 100%;
+            min-height: 0;
+        }
+
+        .pdf-viewer-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #525659;
+            overflow: hidden;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        .pdf-toolbar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-2) var(--space-4);
+            background: #3D4043;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .pdf-toolbar .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: none;
+        }
+
+        .pdf-toolbar .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .pdf-page-info {
+            font-size: 0.8125rem;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .pdf-zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .pdf-zoom-controls button {
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .pdf-zoom-controls button:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .pdf-zoom-controls span {
+            font-size: 0.75rem;
+            min-width: 40px;
+            text-align: center;
+        }
+
+        .highlight-tools {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-left: 16px;
+        }
+
+        .highlight-colors {
+            display: flex;
+            gap: 4px;
+        }
+
+        .highlight-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+        }
+
+        .highlight-color:hover { opacity: 0.8; }
+        .highlight-color.active { border-color: white; }
+        .highlight-color.yellow { background: rgba(255, 235, 59, 0.8); }
+        .highlight-color.green { background: rgba(76, 175, 80, 0.8); }
+        .highlight-color.blue { background: rgba(33, 150, 243, 0.8); }
+        .highlight-color.pink { background: rgba(233, 30, 99, 0.8); }
+
+        .btn-highlight {
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(255,255,255,0.15);
+            color: white;
+            cursor: pointer;
+            font-size: 0.8125rem;
+        }
+
+        .btn-highlight:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .pdf-scroll-container {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            min-height: 0; /* Important for flex child to scroll */
+        }
+
+        #pdf-pages-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .pdf-page-wrapper {
+            position: relative;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .pdf-page-canvas {
+            display: block;
+        }
+
+        .pdf-text-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            line-height: 1;
+        }
+
+        .pdf-text-layer span {
+            position: absolute;
+            white-space: pre;
+            color: transparent;
+            cursor: text;
+        }
+
+        .pdf-text-layer ::selection {
+            background: rgba(255, 235, 59, 0.4);
+        }
+
+        .pdf-highlight-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        .pdf-highlight {
+            position: absolute;
+            pointer-events: auto;
+            cursor: pointer;
+            opacity: 0.4;
+        }
+
+        .pdf-highlight:hover { opacity: 0.6; }
+        .pdf-highlight.yellow { background: #FFEB3B; }
+        .pdf-highlight.green { background: #4CAF50; }
+        .pdf-highlight.blue { background: #2196F3; }
+        .pdf-highlight.pink { background: #E91E63; }
+
+        /* Highlights list in notes panel */
+        .highlights-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .highlight-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            background: white;
+            border-radius: 6px;
+            border-left: 3px solid;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            cursor: pointer;
+        }
+
+        .highlight-item:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+
+        .highlight-item.yellow { border-left-color: #FFEB3B; }
+        .highlight-item.green { border-left-color: #4CAF50; }
+        .highlight-item.blue { border-left-color: #2196F3; }
+        .highlight-item.pink { border-left-color: #E91E63; }
+
+        .highlight-text {
+            font-size: 0.8125rem;
+            line-height: 1.4;
+            color: var(--text-primary);
+        }
+
+        .highlight-note {
+            font-size: 0.75rem;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .highlight-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 6px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .highlight-delete {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 0 4px;
+        }
+
+        .highlight-delete:hover {
+            color: var(--status-failed);
+        }
+
+        .notes-panel {
+            width: 350px;
+            min-width: 300px;
+            max-width: 450px;
+            background: white;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .notes-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--space-3) var(--space-4);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notes-panel-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .notes-textarea {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            line-height: 1.5;
+            resize: none;
+        }
+
+        .notes-textarea:focus {
+            outline: none;
+            background: var(--gray-50);
+        }
+
+        .notes-preview {
+            font-size: 0.875rem;
+            line-height: 1.6;
+        }
+
+        .notes-preview p {
+            margin: 0 0 0.5em 0;
+        }
+
+        .notes-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notes-tab {
+            flex: 1;
+            padding: var(--space-2) var(--space-3);
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .notes-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .notes-preview-label {
+            padding: 8px 12px;
+            background: var(--gray-100);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Excerpts */
+        .add-excerpt-form {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            background: var(--gray-50);
+        }
+
+        .excerpt-input {
+            width: 100%;
+            min-height: 60px;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8125rem;
+            resize: vertical;
+            margin-bottom: 8px;
+        }
+
+        .excerpt-form-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .excerpt-color-select {
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .excerpt-note-input {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .excerpts-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .empty-message {
+            color: var(--text-muted);
+            font-size: 0.8125rem;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .excerpt-item {
+            padding: 10px;
+            margin-bottom: 10px;
+            background: white;
+            border-radius: 6px;
+            border-left: 3px solid;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .excerpt-item.yellow { border-left-color: #FFEB3B; background: #FFFDE7; }
+        .excerpt-item.green { border-left-color: #4CAF50; background: #E8F5E9; }
+        .excerpt-item.blue { border-left-color: #2196F3; background: #E3F2FD; }
+        .excerpt-item.pink { border-left-color: #E91E63; background: #FCE4EC; }
+
+        .excerpt-text {
+            font-size: 0.875rem;
+            line-height: 1.5;
+            font-style: italic;
+        }
+
+        .excerpt-note {
+            font-size: 0.8125rem;
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(0,0,0,0.1);
+            color: var(--text-secondary);
+        }
+
+        .excerpt-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 8px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .excerpt-delete {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .excerpt-delete:hover {
+            background: rgba(0,0,0,0.1);
+            color: var(--status-failed);
+        }
+
+        /* Legacy PDF canvas styles (kept for potential future use) */
+        .pdf-text-layer span {
+            position: absolute;
+            white-space: pre;
+            color: transparent;
+            pointer-events: all;
+            cursor: text;
+        }
+
+        .pdf-text-layer ::selection {
+            background: rgba(255, 235, 59, 0.4);
+        }
+
+        .pdf-highlight-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        .pdf-highlight {
+            position: absolute;
+            pointer-events: auto;
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+        }
+
+        .pdf-highlight:hover {
+            opacity: 0.8;
+        }
+
+        .pdf-highlight.yellow { background: rgba(255, 235, 59, 0.4); }
+        .pdf-highlight.green { background: rgba(76, 175, 80, 0.4); }
+        .pdf-highlight.blue { background: rgba(33, 150, 243, 0.4); }
+        .pdf-highlight.pink { background: rgba(233, 30, 99, 0.4); }
+
+        /* Network Graph */
+        .graph-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+        }
+
+        .graph-toolbar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .graph-toolbar input {
+            flex: 1;
+            max-width: 300px;
+            padding: var(--space-2) var(--space-3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.875rem;
+        }
+
+        .graph-toolbar input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .graph-canvas {
+            flex: 1;
+            min-height: 500px;
+        }
+
+        .graph-connection-panel {
+            padding: var(--space-4);
+            background: white;
+            border-top: 1px solid var(--border);
+        }
+
+        .graph-connection-panel h4 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: var(--space-3);
+        }
+
+        .connection-form {
+            display: flex;
+            gap: var(--space-2);
+            align-items: flex-end;
+        }
+
+        .connection-form .form-group {
+            flex: 1;
+        }
+
+        .connection-form label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: var(--space-1);
+        }
+
+        .connection-form input {
+            width: 100%;
+            padding: var(--space-2);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8125rem;
+        }
+    </style>
+</head>
+<body x-data="app()" x-init="init()">
+    <div class="app-shell">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo">Marginalia</h1>
+            </div>
+
+            <nav class="sidebar-nav">
+                <button class="nav-item" :class="{ active: currentView === 'library' }" @click="currentView = 'library'">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
+                    </svg>
+                    <span>Library</span>
+                    <span class="nav-count" x-text="stats.total || 0"></span>
+                </button>
+                <button class="nav-item" :class="{ active: currentView === 'network' }" @click="switchToNetworkView()">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="3"/>
+                        <circle cx="5" cy="6" r="2"/>
+                        <circle cx="19" cy="6" r="2"/>
+                        <circle cx="5" cy="18" r="2"/>
+                        <circle cx="19" cy="18" r="2"/>
+                        <path d="M7 6.5l2.5 4M17 6.5l-2.5 4M7 17.5l2.5-4M17 17.5l-2.5-4"/>
+                    </svg>
+                    <span>Network</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-section">
+                <h2 class="h2" style="margin-bottom: var(--space-3);">Stats</h2>
+                <div style="font-size: 0.8125rem; color: var(--text-muted);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Discovered</span>
+                        <span x-text="stats.by_status?.discovered || 0"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Downloaded</span>
+                        <span x-text="stats.by_status?.downloaded || 0"></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                        <span>Summarized</span>
+                        <span x-text="stats.by_status?.summarized || 0"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="nav-item" @click="importMessage = null; showImportModal = true">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
+                    </svg>
+                    <span>Import</span>
+                </button>
+                <button class="nav-item" @click="syncResult = null; showSyncModal = true">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M7.5 7.5h-.75A2.25 2.25 0 004.5 9.75v7.5a2.25 2.25 0 002.25 2.25h7.5a2.25 2.25 0 002.25-2.25v-7.5a2.25 2.25 0 00-2.25-2.25h-.75m-6 3.75l3 3m0 0l3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 012.25 2.25v7.5a2.25 2.25 0 01-2.25 2.25h-7.5a2.25 2.25 0 01-2.25-2.25v-.75"/>
+                    </svg>
+                    <span>Sync</span>
+                </button>
+
+                <!-- User info (if authenticated) -->
+                <template x-if="currentUser">
+                    <div class="user-info-sidebar">
+                        <img :src="currentUser.picture" class="user-avatar-small" x-show="currentUser.picture">
+                        <span class="user-name-small" x-text="currentUser.name || currentUser.email"></span>
+                    </div>
+                </template>
+                <template x-if="currentUser">
+                    <a href="/auth/logout" class="nav-item">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/>
+                        </svg>
+                        <span>Logout</span>
+                    </a>
+                </template>
+            </div>
+        </aside>
+
+        <!-- Main area -->
+        <div class="main-area">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <span class="h2" x-text="currentViewLabel"></span>
+                </div>
+
+                <div class="topbar-center">
+                    <div class="search-box">
+                        <input type="text"
+                               class="search-input"
+                               placeholder="Search papers..."
+                               x-model="searchQuery"
+                               @keyup.enter="searchPapers()"
+                               @keyup.escape="searchQuery = ''">
+                    </div>
+                </div>
+
+                <div class="topbar-right">
+                    <button class="btn-icon" @click="refreshData()" title="Refresh">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Content -->
+            <div class="content">
+                <!-- Status Message -->
+                <template x-if="statusMessage">
+                    <div class="alert" :class="{
+                        'alert-success': statusType === 'success',
+                        'alert-error': statusType === 'error',
+                        'alert-info': statusType === 'info'
+                    }">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <div style="font-weight: 600; margin-bottom: 4px;" x-text="statusType === 'success' ? 'Success' : statusType === 'error' ? 'Not Found' : 'Processing...'"></div>
+                                <div x-text="statusMessage"></div>
+                                <template x-if="statusLinks && statusLinks.length > 0">
+                                    <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px;">
+                                        <template x-for="(link, i) in statusLinks.slice(0, 4)" :key="i">
+                                            <a :href="link" target="_blank" class="search-link">
+                                                Search <span x-text="i + 1"></span>
+                                            </a>
+                                        </template>
+                                    </div>
+                                </template>
+                            </div>
+                            <button @click="statusMessage = null; statusLinks = null" style="background: none; border: none; cursor: pointer; font-size: 1.25rem; color: inherit; opacity: 0.6;">&times;</button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Job Status -->
+                <template x-if="Object.keys(jobs).length > 0">
+                    <div class="alert alert-warning">
+                        <div style="font-weight: 600; margin-bottom: 8px;">Active Jobs</div>
+                        <template x-for="(job, jobId) in jobs" :key="jobId">
+                            <div class="job-progress">
+                                <span style="font-family: var(--font-mono); font-size: 0.75rem;" x-text="jobId"></span>
+                                <div class="job-progress-bar">
+                                    <div class="job-progress-fill" :style="`width: ${(job.completed / job.total) * 100}%`"></div>
+                                </div>
+                                <span style="font-size: 0.75rem;" x-text="`${job.completed}/${job.total}`"></span>
+                                <span class="status-badge" :class="job.status === 'completed' ? 'downloaded' : 'discovered'" x-text="job.status"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Library View -->
+                <template x-if="currentView === 'library'">
+                    <div>
+                        <!-- Stats Cards -->
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); max-width: 500px;">
+                            <div class="card stat-card" :class="{ active: currentFilter === 'discovered' }" @click="filterByStatus('discovered')">
+                                <div class="stat-value" x-text="stats.by_status?.discovered || 0"></div>
+                                <div class="stat-label">
+                                    <span class="status-dot discovered" style="margin-right: 4px;"></span>
+                                    <span>discovered</span>
+                                </div>
+                            </div>
+                            <div class="card stat-card" :class="{ active: currentFilter === 'downloaded' }" @click="filterByStatus('downloaded')">
+                                <div class="stat-value" x-text="stats.by_status?.downloaded || 0"></div>
+                                <div class="stat-label">
+                                    <span class="status-dot downloaded" style="margin-right: 4px;"></span>
+                                    <span>downloaded</span>
+                                </div>
+                            </div>
+                            <div class="card stat-card" :class="{ active: currentFilter === 'summarized' }" @click="filterByStatus('summarized')">
+                                <div class="stat-value" x-text="stats.by_status?.summarized || 0"></div>
+                                <div class="stat-label">
+                                    <span class="status-dot summarized" style="margin-right: 4px;"></span>
+                                    <span>summarized</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Actions Bar -->
+                        <div class="actions-bar">
+                            <button class="btn-secondary" :class="{ 'active': !currentFilter }" @click="clearFilter()">All Papers</button>
+                        </div>
+
+                        <!-- Papers Table -->
+                        <div class="card" style="overflow: hidden;">
+                            <table class="papers-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 32px;"></th>
+                                        <th>Paper</th>
+                                        <th style="width: 80px;">Year</th>
+                                        <th style="width: 100px;">Status</th>
+                                        <th style="width: 100px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="paper in papers" :key="paper.citekey">
+                                        <tr class="paper-row" @click="viewPaperDetail(paper.citekey)">
+                                            <td>
+                                                <span class="status-dot" :class="paper.status"></span>
+                                            </td>
+                                            <td>
+                                                <div class="paper-title" x-text="paper.title"></div>
+                                                <div class="paper-authors" x-text="paper.authors?.join(', ')"></div>
+                                                <div class="paper-citekey" x-text="paper.citekey"></div>
+                                            </td>
+                                            <td style="color: var(--text-muted);" x-text="paper.year || '—'"></td>
+                                            <td>
+                                                <span class="status-badge" :class="paper.status" x-text="paper.status"></span>
+                                            </td>
+                                            <td @click.stop>
+                                                <div class="paper-row-actions" style="opacity: 1;">
+                                                    <template x-if="paper.pdf_path">
+                                                        <button @click="viewPaperDetail(paper.citekey); switchToPdfView()" class="btn-text" style="padding: 4px;">PDF</button>
+                                                    </template>
+                                                    <template x-if="paper.status === 'discovered'">
+                                                        <button @click="findPDFSingle(paper.citekey)" :disabled="loadingPaper === paper.citekey" class="btn-text" style="padding: 4px;">
+                                                            <span x-show="loadingPaper !== paper.citekey">Find PDF</span>
+                                                            <span x-show="loadingPaper === paper.citekey">...</span>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+
+                            <!-- Pagination -->
+                            <div class="pagination">
+                                <div class="pagination-info">
+                                    Showing <span x-text="papers.length"></span> of <span x-text="totalPapers"></span> papers
+                                </div>
+                                <div class="pagination-buttons">
+                                    <button class="btn-secondary" @click="prevPage()" :disabled="offset === 0">Previous</button>
+                                    <button class="btn-secondary" @click="nextPage()" :disabled="offset + 100 >= totalPapers">Next</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Network Graph View -->
+                <template x-if="currentView === 'network'">
+                    <div class="graph-container">
+                        <div class="graph-toolbar">
+                            <input type="text" placeholder="Search papers..." x-model="searchQuery" @keyup.enter="searchPapers()">
+                        </div>
+
+                        <div id="network-graph" class="graph-canvas"></div>
+
+                        <div class="graph-connection-panel">
+                            <h4>Connect Papers</h4>
+                            <div class="connection-form">
+                                <div class="form-group">
+                                    <label>Source Paper</label>
+                                    <input type="text" x-model="connectSource" placeholder="citekey">
+                                </div>
+                                <div class="form-group">
+                                    <label>Target Paper</label>
+                                    <input type="text" x-model="connectTarget" placeholder="citekey">
+                                </div>
+                                <div class="form-group">
+                                    <label>Reason (optional)</label>
+                                    <input type="text" x-model="connectReason" placeholder="Why related?">
+                                </div>
+                                <button class="btn-primary" @click="connectPapers()" :disabled="!connectSource || !connectTarget">
+                                    Connect
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Paper Detail View (full page) -->
+    <div class="paper-detail" x-show="showPaperDetail" x-cloak>
+        <header class="paper-detail-header">
+            <button class="btn-secondary" @click="closePaperDetail()">
+                <span style="margin-right: 4px;">&larr;</span> Back
+            </button>
+
+            <!-- View Toggle (only show if PDF exists) -->
+            <template x-if="paperDetail?.pdf_path">
+                <div class="view-toggle">
+                    <button :class="{ active: detailView === 'summary' }" @click="detailView = 'summary'">Summary</button>
+                    <button :class="{ active: detailView === 'pdf' }" @click="switchToPdfView()">PDF</button>
+                </div>
+            </template>
+
+            <div class="paper-detail-actions">
+                <span class="status-badge" :class="paperDetail?.status" x-text="paperDetail?.status"></span>
+                <template x-if="paperDetail?.status === 'discovered'">
+                    <button class="btn-primary" @click="paperDetailAction('find-pdf')">Find PDF</button>
+                </template>
+                <template x-if="paperDetail?.status === 'downloaded' || paperDetail?.status === 'summarized'">
+                    <button class="btn-primary" @click="paperDetailAction('summarize')" x-text="paperDetail?.status === 'summarized' ? 'Re-summarize' : 'Summarize'"></button>
+                </template>
+                <template x-if="paperDetail?.pdf_path && detailView === 'summary'">
+                    <button @click="switchToPdfView()" class="btn-secondary">
+                        View PDF
+                    </button>
+                </template>
+            </div>
+        </header>
+
+        <div class="paper-detail-content">
+            <!-- Summary View -->
+            <template x-if="detailView === 'summary'">
+                <div class="summary-view-wrapper" style="display: contents;">
+                <!-- Left margin rail -->
+                <aside class="paper-margin">
+                    <div class="margin-section">
+                        <span class="margin-label">Year</span>
+                        <span class="margin-value" x-text="paperDetail?.year || '—'"></span>
+                    </div>
+                    <div class="margin-section">
+                        <span class="margin-label">Journal</span>
+                        <span class="margin-value" x-text="paperDetail?.journal || 'Working Paper'"></span>
+                    </div>
+                    <div class="margin-section">
+                        <span class="margin-label">Citekey</span>
+                        <code class="margin-value font-mono" style="font-size: 0.75rem;" x-text="paperDetail?.citekey"></code>
+                    </div>
+                    <template x-if="paperDetail?.doi">
+                        <div class="margin-section">
+                            <span class="margin-label">DOI</span>
+                            <a :href="'https://doi.org/' + paperDetail.doi" class="margin-link" x-text="paperDetail.doi" target="_blank"></a>
+                        </div>
+                    </template>
+                    <template x-if="paperDetail?.url">
+                        <div class="margin-section">
+                            <span class="margin-label">URL</span>
+                            <a :href="paperDetail.url" class="margin-link" target="_blank">Link</a>
+                        </div>
+                    </template>
+                    <template x-if="paperDetail?.added_at">
+                        <div class="margin-section">
+                            <span class="margin-label">Added</span>
+                            <span class="margin-value" x-text="new Date(paperDetail.added_at).toLocaleDateString()"></span>
+                        </div>
+                    </template>
+                </aside>
+
+                <!-- Main reading area -->
+                <main class="paper-main">
+                    <h1 class="h1" x-text="paperDetail?.title"></h1>
+                    <p class="paper-authors-full" x-text="paperDetail?.authors?.join(', ')"></p>
+
+                    <!-- BibTeX Citation -->
+                    <div class="citation-block">
+                        <div class="citation-block-header">BibTeX Citation</div>
+                        <template x-if="paperDetail?.bibtex">
+                            <pre x-text="paperDetail.bibtex"></pre>
+                        </template>
+                        <template x-if="!paperDetail?.bibtex">
+                            <pre x-text="formatBibtex(paperDetail)"></pre>
+                        </template>
+                    </div>
+
+                    <!-- Abstract -->
+                    <template x-if="paperDetail?.abstract">
+                        <section class="paper-section">
+                            <h2 class="h2">Abstract</h2>
+                            <p class="body-reading" x-text="paperDetail.abstract"></p>
+                        </section>
+                    </template>
+
+                    <!-- Summary -->
+                    <template x-if="paperSummary">
+                        <section class="paper-section">
+                            <h2 class="h2">Summary</h2>
+                            <div class="body-reading summary-content markdown-body" x-html="renderMarkdown(paperSummary)"></div>
+                        </section>
+                    </template>
+
+                    <!-- Related Papers -->
+                    <template x-if="paperDetail?.related_papers?.length > 0">
+                        <section class="paper-section">
+                            <h2 class="h2">Related Papers</h2>
+                            <template x-for="related in paperDetail.related_papers" :key="related.title">
+                                <div class="related-paper-card">
+                                    <div class="related-paper-title" x-text="related.title"></div>
+                                    <div class="related-paper-meta">
+                                        <span x-text="related.authors?.join(', ') || 'Unknown authors'"></span>
+                                        (<span x-text="related.year || 'n.d.'"></span>)
+                                    </div>
+                                    <div class="related-paper-reason" x-text="related.why_related"></div>
+                                    <div class="related-paper-actions">
+                                        <template x-if="related.vault_citekey">
+                                            <button @click="viewPaperDetail(related.vault_citekey)" class="link-btn">
+                                                View in Library
+                                            </button>
+                                        </template>
+                                        <template x-if="!related.vault_citekey">
+                                            <button @click="addRelatedPaper(related)" class="link-btn">
+                                                + Add to Library
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </section>
+                    </template>
+                </main>
+                </div>
+            </template>
+
+            <!-- PDF View with Notes Panel -->
+            <template x-if="detailView === 'pdf'">
+                <div class="pdf-split-container">
+                    <div class="pdf-viewer-container">
+                        <div class="pdf-toolbar">
+                            <button @click="detailView = 'summary'" class="btn-secondary">← Summary</button>
+                            <span class="pdf-page-info">
+                                Page <span x-text="pdfCurrentPage"></span> of <span x-text="pdfTotalPages"></span>
+                            </span>
+                            <div class="pdf-zoom-controls">
+                                <button @click="pdfZoom(0.8)" title="Zoom out">−</button>
+                                <span x-text="Math.round(pdfScale * 100) + '%'"></span>
+                                <button @click="pdfZoom(1.25)" title="Zoom in">+</button>
+                            </div>
+                            <div class="highlight-tools">
+                                <div class="highlight-colors">
+                                    <div class="highlight-color yellow" :class="{ active: highlightColor === 'yellow' }" @click="highlightColor = 'yellow'" title="Yellow"></div>
+                                    <div class="highlight-color green" :class="{ active: highlightColor === 'green' }" @click="highlightColor = 'green'" title="Green"></div>
+                                    <div class="highlight-color blue" :class="{ active: highlightColor === 'blue' }" @click="highlightColor = 'blue'" title="Blue"></div>
+                                    <div class="highlight-color pink" :class="{ active: highlightColor === 'pink' }" @click="highlightColor = 'pink'" title="Pink"></div>
+                                </div>
+                                <button @click="highlightSelection()" class="btn-highlight">Highlight</button>
+                            </div>
+                        </div>
+                        <div class="pdf-scroll-container" id="pdf-scroll-container" @scroll="updateCurrentPage()">
+                            <div id="pdf-pages-container"></div>
+                        </div>
+                    </div>
+                    <aside class="notes-panel">
+                        <div class="notes-panel-header">
+                            <h3>Notes & Highlights</h3>
+                            <button class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px;" @click="saveNotes()" :disabled="!notesModified">
+                                <span x-show="!savingNotes">Save</span>
+                                <span x-show="savingNotes">Saving...</span>
+                            </button>
+                        </div>
+
+                        <div class="notes-tabs">
+                            <button class="notes-tab" :class="{ active: notesTab === 'notes' }" @click="notesTab = 'notes'">Notes</button>
+                            <button class="notes-tab" :class="{ active: notesTab === 'highlights' }" @click="notesTab = 'highlights'">
+                                Highlights (<span x-text="paperHighlights.length"></span>)
+                            </button>
+                        </div>
+
+                        <div class="notes-content" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+                            <!-- Notes Tab -->
+                            <template x-if="notesTab === 'notes'">
+                                <div style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+                                    <textarea class="notes-textarea"
+                                              x-model="paperNotesContent"
+                                              @input="notesModified = true"
+                                              placeholder="Write notes here... Supports Markdown and LaTeX: $E = mc^2$"
+                                              style="flex: 1; resize: none;"></textarea>
+                                    <div class="notes-preview-label">Preview</div>
+                                    <div class="notes-preview" x-html="renderNotesPreview(paperNotesContent)" style="flex: 1; overflow: auto;"></div>
+                                </div>
+                            </template>
+
+                            <!-- Highlights Tab -->
+                            <template x-if="notesTab === 'highlights'">
+                                <div class="highlights-list">
+                                    <template x-if="paperHighlights.length === 0">
+                                        <p class="empty-message">No highlights yet. Select text in the PDF and click Highlight.</p>
+                                    </template>
+                                    <template x-for="h in paperHighlights" :key="h.id">
+                                        <div class="highlight-item" :class="h.color" @click="scrollToHighlight(h)">
+                                            <div class="highlight-text" x-text="h.text"></div>
+                                            <template x-if="h.note">
+                                                <div class="highlight-note" x-text="h.note"></div>
+                                            </template>
+                                            <div class="highlight-meta">
+                                                <span>Page <span x-text="h.page"></span></span>
+                                                <button class="highlight-delete" @click.stop="deleteHighlight(h.id)">×</button>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </aside>
+                </div>
+            </template>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div class="modal-overlay" x-show="showImportModal" x-cloak @click.self="showImportModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3">Import BibTeX</h3>
+                <button @click="showImportModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <template x-if="importMessage">
+                    <div class="alert" :class="importMessageType === 'success' ? 'alert-success' : importMessageType === 'info' ? 'alert-info' : 'alert-error'" style="margin-bottom: var(--space-4);">
+                        <span x-text="importMessage"></span>
+                    </div>
+                </template>
+
+                <div style="margin-bottom: var(--space-6);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Upload File</label>
+                    <label class="btn-primary" style="cursor: pointer; display: inline-block;" :style="importing ? 'opacity: 0.5; pointer-events: none;' : ''">
+                        <span x-show="!importing">Choose .bib File</span>
+                        <span x-show="importing">Importing...</span>
+                        <input type="file" accept=".bib" @change="importBibtex($event)" style="display: none;" :disabled="importing">
+                    </label>
+                </div>
+                <div>
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Or Enter Path</label>
+                    <div class="input-with-browse">
+                        <input type="text" x-model="importPath"
+                               placeholder="/path/to/references.bib"
+                               class="search-input">
+                        <button class="btn-browse" @click="openBrowse('import')">Browse</button>
+                    </div>
+                    <div style="margin-top: var(--space-3);">
+                        <button class="btn-primary" @click="importFromPath()" :disabled="!importPath || importing">
+                            <span x-show="!importing">Import</span>
+                            <span x-show="importing">Importing...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Modal -->
+    <div class="modal-overlay" x-show="showSyncModal" x-cloak @click.self="showSyncModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3">Sync to Folder</h3>
+                <button @click="showSyncModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-muted); margin-bottom: var(--space-4); font-size: 0.875rem;">
+                    Export your library to a local folder. This will copy PDFs, summaries, and generate a merged BibTeX file.
+                </p>
+
+                <div style="margin-bottom: var(--space-4); padding: var(--space-3); background: var(--surface); border-radius: 6px; font-size: 0.8125rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="color: var(--text-muted);">Source:</span>
+                            <code style="font-family: var(--font-mono); font-size: 0.75rem;" x-text="sourceBibPath || 'Not set'"></code>
+                        </div>
+                        <button class="btn-browse" style="font-size: 0.75rem; padding: 4px 8px;" @click="openBrowse('source')">Set</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: var(--space-4);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Export Folder</label>
+                    <div class="input-with-browse">
+                        <input type="text" x-model="syncPath"
+                               placeholder="~/Documents/MyLibrary"
+                               class="search-input">
+                        <button class="btn-browse" @click="openBrowse('sync')">Browse</button>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: var(--space-6);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Include</label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); cursor: pointer;">
+                        <input type="checkbox" x-model="syncOptions.pdfs">
+                        <span>PDFs (<span x-text="stats.by_status?.downloaded || 0"></span> + <span x-text="stats.by_status?.summarized || 0"></span> files)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); cursor: pointer;">
+                        <input type="checkbox" x-model="syncOptions.summaries">
+                        <span>Summaries (<span x-text="stats.by_status?.summarized || 0"></span> files)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                        <input type="checkbox" x-model="syncOptions.bibtex">
+                        <span>BibTeX (references.bib)</span>
+                    </label>
+                </div>
+
+                <template x-if="syncResult">
+                    <div class="alert" :class="syncResult.success ? 'alert-success' : 'alert-error'" style="margin-bottom: var(--space-4);">
+                        <template x-if="syncResult.success">
+                            <div>
+                                <div style="font-weight: 600; margin-bottom: 4px;">Sync Complete</div>
+                                <div style="font-size: 0.875rem;">
+                                    <span x-text="syncResult.pdfs_copied"></span> PDFs,
+                                    <span x-text="syncResult.summaries_copied"></span> summaries exported
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="!syncResult.success">
+                            <div x-text="syncResult.error"></div>
+                        </template>
+                    </div>
+                </template>
+
+                <div style="display: flex; gap: var(--space-3);">
+                    <button class="btn-primary" @click="syncToFolder()" :disabled="!syncPath || syncing">
+                        <span x-show="!syncing">Sync Now</span>
+                        <span x-show="syncing">Syncing...</span>
+                    </button>
+                    <button @click="exportBibtex()" class="btn-secondary">
+                        Export BibTeX
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vault Selector Modal (Tauri mode) -->
+    <div class="modal-overlay" x-show="showVaultModal" x-cloak style="z-index: 100;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3">Welcome to Marginalia</h3>
+            </div>
+            <div class="modal-body" style="text-align: center;">
+                <p style="margin-bottom: var(--space-6); color: var(--text-muted);">
+                    Select a vault folder to store your papers and notes.
+                </p>
+
+                <template x-if="recentVaults.length > 0">
+                    <div style="margin-bottom: var(--space-6);">
+                        <p class="h2" style="margin-bottom: var(--space-3);">Recent Vaults</p>
+                        <template x-for="vault in recentVaults" :key="vault.path">
+                            <button
+                                @click="openVault(vault.path)"
+                                class="btn-secondary"
+                                style="display: block; width: 100%; margin-bottom: var(--space-2); text-align: left;"
+                            >
+                                <span x-text="vault.name" style="font-weight: 500;"></span>
+                                <span x-text="' (' + vault.paper_count + ' papers)'" style="color: var(--text-muted);"></span>
+                            </button>
+                        </template>
+                    </div>
+                </template>
+
+                <div style="display: flex; gap: var(--space-3); justify-content: center;">
+                    <button @click="createVault()" class="btn-primary">
+                        Create New Vault
+                    </button>
+                    <button @click="selectVaultFolder()" class="btn-secondary">
+                        Open Existing Vault
+                    </button>
+                </div>
+
+                <template x-if="!claudeStatus.available">
+                    <div style="margin-top: var(--space-6); padding: var(--space-4); background: var(--surface); border-radius: 8px; text-align: left;">
+                        <p class="h2" style="margin-bottom: var(--space-2);">Claude CLI (Optional)</p>
+                        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: var(--space-3);">
+                            Install Claude Code CLI to enable AI-powered summarization.
+                        </p>
+                        <code style="background: var(--border); padding: 4px 8px; border-radius: 4px; font-size: 0.75rem;">
+                            brew install anthropics/tap/claude
+                        </code>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- Browse Modal -->
+    <div class="modal-overlay" x-show="showBrowseModal" x-cloak @click.self="showBrowseModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="h3" x-text="browseMode === 'import' ? 'Select .bib File' : browseMode === 'source' ? 'Set Source .bib' : 'Select Folder'"></h3>
+                <button @click="showBrowseModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="browse-current" x-text="browseCurrent"></div>
+
+                <div class="browse-list">
+                    <template x-if="browseParent">
+                        <div class="browse-item parent" @click="browseTo(browseParent)">
+                            <span class="icon">..</span>
+                            <span>Parent folder</span>
+                        </div>
+                    </template>
+
+                    <template x-for="dir in browseDirectories" :key="dir.path">
+                        <div class="browse-item" @click="browseTo(dir.path)">
+                            <span class="icon">📁</span>
+                            <span x-text="dir.name"></span>
+                        </div>
+                    </template>
+
+                    <template x-if="browseMode === 'import' || browseMode === 'source'">
+                        <template x-for="file in browseBibFiles" :key="file.path">
+                            <div class="browse-item" @click="selectBrowsePath(file.path)" style="color: var(--accent);">
+                                <span class="icon">📄</span>
+                                <span x-text="file.name"></span>
+                            </div>
+                        </template>
+                    </template>
+                </div>
+
+                <div style="display: flex; gap: var(--space-3);">
+                    <template x-if="browseMode === 'sync'">
+                        <button class="btn-primary" @click="selectBrowsePath(browseCurrent)">
+                            Select This Folder
+                        </button>
+                    </template>
+                    <button class="btn-secondary" @click="showBrowseModal = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>window.TEST1 = true; console.log('TEST1 script ran');</script>
+
+    <script>
+        window.SCRIPT_STARTED = true;
+    </script>
+    <script>window.CHECKPOINT1 = true;</script>
+    <script>window.CHECKPOINT1B = true;</script>
+    <script>window.CHECKPOINT1C = true;</script>
+    <script>
+        window.CHECKPOINT2 = true;
+        // Tauri API detection
+        var isTauri = !!(window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke);
+        var invoke = null;
+        var openDialog = null;
+        var saveDialog = null;
+        if (isTauri) {
+            invoke = window.__TAURI__.core.invoke;
+            if (window.__TAURI__.dialog) {
+                openDialog = window.__TAURI__.dialog.open;
+                saveDialog = window.__TAURI__.dialog.save;
+            }
+        }
+    </script>
+    <script>
+        window.CHECKPOINT2B = true;
+        function app() {
+            return {
+                // Vault state (Tauri mode)
+                vaultPath: null,
+                recentVaults: [],
+                showVaultModal: false,
+                claudeStatus: { available: false, version: null, logged_in: false },
+
+                stats: { by_status: {} },
+                papers: [],
+                totalPapers: 0,
+                offset: 0,
+                searchQuery: '',
+                currentFilter: null,
+                jobs: {},
+                jobPollInterval: null,
+
+                // UI state
+                currentView: 'library',  // 'library' or 'network'
+                showImportModal: false,
+                showSyncModal: false,
+                showPaperDetail: false,
+                paperDetail: null,
+                paperSummary: null,
+
+                // Status message
+                statusMessage: null,
+                statusType: 'info',
+                statusLinks: null,
+                loadingPaper: null,
+                importPath: '',
+                importMessage: null,
+                importMessageType: 'info',
+                importing: false,
+
+                // Sync state
+                syncPath: '',
+                sourceBibPath: null,
+                syncOptions: { pdfs: true, summaries: true, bibtex: true },
+                syncing: false,
+                syncResult: null,
+
+                // Browse state
+                showBrowseModal: false,
+                browseMode: null,  // 'import', 'source', or 'sync'
+                browseCurrent: '',
+                browseParent: null,
+                browseDirectories: [],
+                browseBibFiles: [],
+
+                // Auth state
+                currentUser: null,
+
+                // PDF viewer state
+                detailView: 'summary',  // 'summary' or 'pdf'
+                pdfDoc: null,
+                pdfCurrentPage: 1,
+                pdfTotalPages: 0,
+                pdfScale: 1.2,
+                pdfPageOffsets: [],
+                highlightColor: 'yellow',
+                highlightColor: 'yellow',
+
+                // Notes state
+                notesTab: 'notes',  // 'notes' or 'excerpts'
+                paperNotesContent: '',
+                paperHighlights: [],
+                notesModified: false,
+                savingNotes: false,
+                newExcerptText: '',
+                newExcerptColor: 'yellow',
+                newExcerptNote: '',
+
+                // Network graph state
+                networkGraph: null,
+                networkNodes: [],
+                networkEdges: [],
+                connectSource: '',
+                connectTarget: '',
+                connectReason: '',
+
+                get currentViewLabel() {
+                    return this.currentView === 'network' ? 'Network Graph' : 'Library';
+                },
+
+                formatBibtex(paper) {
+                    if (!paper) return '';
+                    const type = paper.journal ? 'article' : 'misc';
+                    const authors = paper.authors?.join(' and ') || 'Unknown';
+                    let bib = `@${type}{${paper.citekey},\n`;
+                    bib += `  author = {${authors}},\n`;
+                    bib += `  title = {${paper.title || ''}},\n`;
+                    if (paper.journal) bib += `  journal = {${paper.journal}},\n`;
+                    if (paper.year) bib += `  year = {${paper.year}},\n`;
+                    if (paper.doi) bib += `  doi = {${paper.doi}},\n`;
+                    if (paper.url) bib += `  url = {${paper.url}},\n`;
+                    bib += `}`;
+                    return bib;
+                },
+
+                renderMarkdown(text) {
+                    if (!text) return '';
+                    try {
+                        let processed = text;
+
+                        // Strip metadata frontmatter block (title: "..." authors: [...] etc.)
+                        processed = processed.replace(/^title:\s*"[^"]*"\s*authors:\s*\[[^\]]*\]\s*year:\s*\d*\s*journal:\s*"[^"]*"\s*citekey:\s*"[^"]*"\s*doi:\s*"[^"]*"\s*status:\s*"[^"]*"\s*pdf_path:\s*"[^"]*"\s*/i, '');
+
+                        // Also strip YAML-style frontmatter between --- markers
+                        processed = processed.replace(/^---[\s\S]*?---\s*/m, '');
+
+                        // Strip leading "# Summary" or "## Summary" heading (we already have section header)
+                        processed = processed.replace(/^##?\s*Summary\s*\n+/i, '');
+
+                        // Strip "Related Work" or "Related Papers" sections from the summary text
+                        // (we show these as separate linked cards, not prose)
+                        processed = processed.replace(/##?\s*Related\s*(Work|Papers|Literature)[\s\S]*$/i, '');
+
+                        // Convert wiki-links [[filename]] to actual links
+                        // [[paper.pdf]] -> link to the paper's PDF
+                        processed = processed.replace(/\[\[([^\]]+\.pdf)\]\]/gi, (match, filename) => {
+                            if (this.paperDetail?.pdf_path) {
+                                return `[Open PDF](/api/papers/${this.paperDetail.citekey}/pdf)`;
+                            }
+                            return match;
+                        });
+                        // Convert other wiki-links [[citekey]] to paper links (if they exist)
+                        processed = processed.replace(/\[\[([^\]]+)\]\]/g, (match, content) => {
+                            // Just render as emphasized text if not a PDF link
+                            return `*${content}*`;
+                        });
+                        return marked.parse(processed);
+                    } catch (e) {
+                        return text;
+                    }
+                },
+
+                // Parse related papers from summary markdown
+                parseRelatedPapersFromSummary() {
+                    if (!this.paperSummary || !this.paperDetail) return;
+
+                    // Find the Related Work/Papers section
+                    const relatedMatch = this.paperSummary.match(/##?\s*Related\s*(Work|Papers|Literature)\s*\n([\s\S]*?)(?=\n##[^#]|\n---[^-]|$)/i);
+                    if (!relatedMatch) {
+                        console.log('No Related Work section found');
+                        return;
+                    }
+
+                    const relatedSection = relatedMatch[2];
+                    console.log('Found Related Work section:', relatedSection.substring(0, 300));
+
+                    // Parse multi-line YAML-like format from Claude prompt:
+                    // - Title: [paper title]
+                    //   Authors: [author names]
+                    //   Year: [year]
+                    //   Why Related: [brief explanation]
+                    const lines = relatedSection.split('\n');
+                    const papers = [];
+                    let current = null;
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+
+                        if (trimmed.startsWith('- Title:')) {
+                            // Save previous paper if exists
+                            if (current && current.title) {
+                                papers.push(current);
+                            }
+                            // Start new paper
+                            current = {
+                                title: trimmed.replace(/^- Title:\s*/, '').trim(),
+                                authors: [],
+                                year: null,
+                                why_related: '',
+                                vault_citekey: null
+                            };
+                        } else if (current) {
+                            if (trimmed.startsWith('Authors:')) {
+                                const authorsStr = trimmed.replace(/^Authors:\s*/, '').trim();
+                                current.authors = authorsStr
+                                    .split(/ and |, /)
+                                    .map(s => s.trim())
+                                    .filter(s => s.length > 0);
+                            } else if (trimmed.startsWith('Year:')) {
+                                const yearStr = trimmed.replace(/^Year:\s*/, '').trim();
+                                current.year = parseInt(yearStr) || null;
+                            } else if (trimmed.startsWith('Why Related:')) {
+                                current.why_related = trimmed.replace(/^Why Related:\s*/, '').trim();
+                            }
+                        }
+                    }
+
+                    // Don't forget the last paper
+                    if (current && current.title) {
+                        papers.push(current);
+                    }
+
+                    console.log('Parsed related papers:', papers);
+
+                    // Update paperDetail with parsed related papers
+                    if (papers.length > 0) {
+                        this.paperDetail.related_papers = papers;
+                    }
+                },
+
+                async init() {
+                    console.log('init() called, isTauri:', isTauri);
+                    if (isTauri) {
+                        // Log available Tauri modules for debugging
+                        console.log('Tauri modules:', Object.keys(window.__TAURI__ || {}));
+                        console.log('fs module:', window.__TAURI__?.fs);
+                        console.log('core module:', Object.keys(window.__TAURI__?.core || {}));
+                        // Tauri mode: check for vaults
+                        console.log('Running in Tauri mode');
+                        try {
+                            await this.checkClaudeStatus();
+                            await this.loadRecentVaults();
+                            console.log('Recent vaults:', this.recentVaults);
+                            if (this.recentVaults.length === 0) {
+                                console.log('No recent vaults, showing modal');
+                                this.showVaultModal = true;
+                            } else {
+                                console.log('Opening vault:', this.recentVaults[0].path);
+                                await this.openVault(this.recentVaults[0].path);
+                            }
+                        } catch (e) {
+                            console.error('Init error:', e);
+                            this.showVaultModal = true;
+                        }
+                    } else {
+                        // Web mode (legacy)
+                        console.log('Running in web mode');
+                        await this.checkAuth();
+                        await this.refreshData();
+                        await this.loadConfig();
+                        this.startJobPolling();
+                    }
+                },
+
+                async checkClaudeStatus() {
+                    if (!isTauri) return;
+                    try {
+                        this.claudeStatus = await invoke('check_claude_cli');
+                        console.log('Claude CLI status:', this.claudeStatus);
+                    } catch (e) {
+                        console.log('Claude check failed:', e);
+                    }
+                },
+
+                async loadRecentVaults() {
+                    if (!isTauri) return;
+                    try {
+                        this.recentVaults = await invoke('get_recent_vaults');
+                    } catch (e) {
+                        console.log('Could not load recent vaults:', e);
+                        this.recentVaults = [];
+                    }
+                },
+
+                async openVault(path) {
+                    if (!isTauri) return;
+                    console.log('openVault called with path:', path);
+                    try {
+                        let index = await invoke('open_vault', { path: String(path) });
+                        console.log('Vault opened, index:', index);
+                        this.vaultPath = String(path);
+
+                        // Check for .bib files in vault root
+                        const bibFiles = await invoke('find_bib_files', { path: String(path) });
+                        console.log('Found .bib files:', bibFiles);
+
+                        // If no papers in index but .bib files exist, auto-import
+                        const paperCount = index && index.papers ? Object.keys(index.papers).length : 0;
+                        if (paperCount === 0 && bibFiles.length > 0) {
+                            console.log('Auto-importing first .bib file:', bibFiles[0]);
+                            const importResult = await invoke('import_bibtex', {
+                                vaultPath: String(path),
+                                bibPath: bibFiles[0]
+                            });
+                            console.log('Import result:', importResult);
+                            this.showStatus('Imported ' + importResult.added + ' papers from ' + bibFiles[0].split('/').pop(), 'success');
+                            index = await invoke('open_vault', { path: String(path) });
+                        }
+
+                        // Scan for existing PDF/summary files
+                        const scanResult = await invoke('scan_vault_files', { path: String(path) });
+                        console.log('Scan result:', scanResult);
+                        if (scanResult.updated > 0) {
+                            this.showStatus('Found ' + scanResult.updated + ' existing PDFs/summaries', 'success');
+                            index = scanResult.index;
+                        }
+
+                        const finalCount = index && index.papers ? Object.keys(index.papers).length : 0;
+                        await invoke('add_recent_vault', { path: String(path), paperCount: finalCount });
+                        this.showVaultModal = false;
+                        await this.refreshData();
+
+                        // If still no papers, prompt to import
+                        if (finalCount === 0) {
+                            this.showImportModal = true;
+                        }
+                    } catch (e) {
+                        console.error('openVault error:', e);
+                        this.showStatus('Failed to open vault: ' + e, 'error');
+                    }
+                },
+
+                async createVault() {
+                    if (!isTauri || !openDialog) return;
+                    try {
+                        const path = await openDialog({ directory: true, title: 'Select folder for new vault' });
+                        if (path) {
+                            await invoke('create_vault', { path });
+                            await this.openVault(path);
+                        }
+                    } catch (e) {
+                        this.showStatus('Failed to create vault: ' + e, 'error');
+                    }
+                },
+
+                async selectVaultFolder() {
+                    if (!isTauri || !openDialog) return;
+                    try {
+                        const path = await openDialog({ directory: true, title: 'Select existing vault folder' });
+                        console.log('Selected folder path:', path, typeof path);
+                        if (path) {
+                            await this.openVault(path);
+                        }
+                    } catch (e) {
+                        console.error('selectVaultFolder error:', e);
+                        this.showStatus('Failed to select vault: ' + e, 'error');
+                    }
+                },
+
+                showStatus(message, type = 'info') {
+                    this.statusMessage = message;
+                    this.statusType = type;
+                    this.statusLinks = null;
+                },
+
+                async exportBibtex() {
+                    if (!isTauri) return;
+                    try {
+                        const path = await window.__TAURI__.dialog.save({
+                            defaultPath: 'references.bib',
+                            filters: [{ name: 'BibTeX', extensions: ['bib'] }]
+                        });
+                        if (path) {
+                            await invoke('export_bibtex', { vaultPath: this.vaultPath, outputPath: path });
+                            this.showStatus('BibTeX exported to ' + path, 'success');
+                        }
+                    } catch (e) {
+                        this.showStatus('Failed to export: ' + e, 'error');
+                    }
+                },
+
+                async checkAuth() {
+                    // Legacy web mode only
+                    if (isTauri) return;
+                    try {
+                        const res = await fetch(`/api/me`);
+                        const data = await res.json();
+                        if (data.authenticated) {
+                            this.currentUser = data.user;
+                        }
+                    } catch (e) {
+                        console.log('Auth check failed:', e);
+                    }
+                },
+
+                async loadConfig() {
+                    // Legacy web mode only
+                    if (isTauri) return;
+                    try {
+                        const res = await fetch(`/api/config`);
+                        const config = await res.json();
+                        if (config.default_sync_path) {
+                            this.syncPath = config.default_sync_path;
+                        }
+                        if (config.source_bib_path) {
+                            this.sourceBibPath = config.source_bib_path;
+                        }
+                    } catch (e) {
+                        console.log('Could not load config:', e);
+                    }
+                },
+
+                async openBrowse(mode) {
+                    this.browseMode = mode;
+                    // Start from current path or home
+                    let startPath = null;
+                    if (mode === 'import' && this.importPath) {
+                        startPath = this.importPath.split('/').slice(0, -1).join('/');
+                    } else if (mode === 'source' && this.sourceBibPath) {
+                        startPath = this.sourceBibPath.split('/').slice(0, -1).join('/');
+                    } else if (mode === 'sync' && this.syncPath) {
+                        startPath = this.syncPath;
+                    }
+                    await this.browseTo(startPath);
+                    this.showBrowseModal = true;
+                },
+
+                async browseTo(path) {
+                    try {
+                        const res = await fetch(`/api/browse`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: path })
+                        });
+                        const data = await res.json();
+                        this.browseCurrent = data.current;
+                        this.browseParent = data.parent;
+                        this.browseDirectories = data.directories;
+                        this.browseBibFiles = data.bib_files || [];
+                    } catch (e) {
+                        console.error('Browse error:', e);
+                    }
+                },
+
+                async selectBrowsePath(path) {
+                    if (this.browseMode === 'import') {
+                        this.importPath = path;
+                    } else if (this.browseMode === 'source') {
+                        // Set the source path via API
+                        try {
+                            const res = await fetch(`/api/config/source-path`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ source_path: path })
+                            });
+                            const data = await res.json();
+                            this.sourceBibPath = data.source_bib_path;
+                            // Also set sync path to parent directory
+                            const pathParts = path.split('/');
+                            pathParts.pop();
+                            this.syncPath = pathParts.join('/');
+                        } catch (e) {
+                            console.error('Error setting source path:', e);
+                        }
+                    } else if (this.browseMode === 'sync') {
+                        this.syncPath = path;
+                    }
+                    this.showBrowseModal = false;
+                },
+
+                async refreshData() {
+                    await this.refreshStats();
+                    await this.loadPapers();
+                },
+
+                async refreshStats() {
+                    if (isTauri) {
+                        this.stats = await invoke('get_stats', { vaultPath: this.vaultPath });
+                    } else {
+                        const res = await fetch(`/api/stats`);
+                        this.stats = await res.json();
+                    }
+                },
+
+                async loadPapers() {
+                    if (isTauri) {
+                        if (this.searchQuery) {
+                            this.papers = await invoke('search_papers', {
+                                vaultPath: this.vaultPath,
+                                query: this.searchQuery
+                            });
+                            this.totalPapers = this.papers.length;
+                        } else {
+                            const data = await invoke('get_papers', {
+                                vaultPath: this.vaultPath,
+                                status: this.currentFilter,
+                                limit: 100,
+                                offset: this.offset
+                            });
+                            this.papers = data.papers;
+                            this.totalPapers = data.total;
+                        }
+                    } else {
+                        let url = `/api/papers?limit=100&offset=${this.offset}`;
+                        if (this.currentFilter) url += `&status=${this.currentFilter}`;
+                        if (this.searchQuery) url += `&search=${encodeURIComponent(this.searchQuery)}`;
+                        const res = await fetch(url);
+                        const data = await res.json();
+                        this.papers = data.papers;
+                        this.totalPapers = data.total;
+                    }
+                },
+
+                filterByStatus(status) {
+                    this.currentFilter = this.currentFilter === status ? null : status;
+                    this.offset = 0;
+                    this.loadPapers();
+                },
+
+                clearFilter() {
+                    this.currentFilter = null;
+                    this.searchQuery = '';
+                    this.offset = 0;
+                    this.loadPapers();
+                },
+
+                searchPapers() {
+                    this.currentFilter = null;
+                    this.offset = 0;
+                    this.loadPapers();
+                },
+
+                prevPage() {
+                    this.offset = Math.max(0, this.offset - 100);
+                    this.loadPapers();
+                },
+
+                nextPage() {
+                    this.offset += 100;
+                    this.loadPapers();
+                },
+
+                async findPDFSingle(citekey) {
+                    this.loadingPaper = citekey;
+                    this.statusMessage = `Searching for PDF...`;
+                    this.statusType = 'info';
+                    this.statusLinks = null;
+
+                    try {
+                        if (isTauri) {
+                            const data = await invoke('find_pdf', { vaultPath: this.vaultPath, citekey });
+                            if (data.success) {
+                                this.statusMessage = `PDF found from ${data.source}!`;
+                                this.statusType = 'success';
+                            } else {
+                                this.statusMessage = `No open access PDF found. Try the manual search links.`;
+                                this.statusType = 'error';
+                                this.statusLinks = data.manual_links || [];
+                            }
+                        } else {
+                            const res = await fetch(`/api/papers/${citekey}/find-pdf`, { method: 'POST' });
+                            const data = await res.json();
+                            if (data.status === 'success') {
+                                this.statusMessage = `PDF found from ${data.source}!`;
+                                this.statusType = 'success';
+                            } else {
+                                this.statusMessage = `No open access PDF found. Try the manual search links.`;
+                                this.statusType = 'error';
+                                this.statusLinks = data.manual_links || [];
+                            }
+                        }
+                        await this.refreshData();
+                    } catch (e) {
+                        this.statusMessage = `Error: ${e.message || e}`;
+                        this.statusType = 'error';
+                    } finally {
+                        this.loadingPaper = null;
+                    }
+                },
+
+                async summarizeSinglePaper(citekey) {
+                    if (isTauri && !this.claudeStatus.available) {
+                        this.statusMessage = 'Claude CLI not installed. Install with: brew install anthropics/tap/claude';
+                        this.statusType = 'error';
+                        return;
+                    }
+
+                    this.loadingPaper = citekey;
+                    this.statusMessage = `Summarizing ${citekey}...`;
+                    this.statusType = 'info';
+                    this.statusLinks = null;
+
+                    try {
+                        if (isTauri) {
+                            const result = await invoke('summarize_paper', { vaultPath: this.vaultPath, citekey });
+                            if (result.success) {
+                                this.statusMessage = `Successfully summarized!`;
+                                this.statusType = 'success';
+                                await this.refreshData();
+                            } else {
+                                this.statusMessage = `Error: ${result.error}`;
+                                this.statusType = 'error';
+                            }
+                        } else {
+                            const res = await fetch(`/api/papers/${citekey}/summarize`, { method: 'POST' });
+                            const data = await res.json();
+                            if (res.ok) {
+                                this.statusMessage = `Successfully summarized!`;
+                                this.statusType = 'success';
+                                await this.refreshData();
+                            } else {
+                                this.statusMessage = `Error: ${data.detail}`;
+                                this.statusType = 'error';
+                            }
+                        }
+                    } catch (e) {
+                        this.statusMessage = `Error: ${e.message || e}`;
+                        this.statusType = 'error';
+                    } finally {
+                        this.loadingPaper = null;
+                    }
+                },
+
+                startJobPolling() {
+                    this.jobPollInterval = setInterval(async () => {
+                        const res = await fetch(`/api/jobs`);
+                        this.jobs = await res.json();
+
+                        const hasCompleted = Object.values(this.jobs).some(j => j.status === 'completed');
+                        if (hasCompleted) {
+                            await this.refreshData();
+                        }
+                    }, 2000);
+                },
+
+                async uploadPDF(citekey, event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    await fetch(`/api/papers/${citekey}/upload-pdf`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    await this.refreshData();
+                },
+
+                async importBibtex(event) {
+                    if (isTauri) {
+                        // Use native file dialog in Tauri
+                        await this.importBibtexTauri();
+                        return;
+                    }
+
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    this.importing = true;
+                    this.importMessage = 'Importing...';
+                    this.importMessageType = 'info';
+
+                    try {
+                        const formData = new FormData();
+                        formData.append('file', file);
+
+                        const res = await fetch(`/api/import-bibtex`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await res.json();
+
+                        this.importMessage = `Imported ${data.added} papers`;
+                        this.importMessageType = 'success';
+                        await this.refreshData();
+                    } catch (e) {
+                        this.importMessage = `Error: ${e.message}`;
+                        this.importMessageType = 'error';
+                    } finally {
+                        this.importing = false;
+                    }
+                },
+
+                async importBibtexTauri() {
+                    if (!openDialog) return;
+
+                    try {
+                        const filePath = await openDialog({
+                            title: 'Select BibTeX file',
+                            filters: [{ name: 'BibTeX', extensions: ['bib'] }]
+                        });
+
+                        if (!filePath) return;
+
+                        this.importing = true;
+                        this.importMessage = 'Importing...';
+                        this.importMessageType = 'info';
+
+                        const data = await invoke('import_bibtex', {
+                            vaultPath: this.vaultPath,
+                            bibPath: filePath
+                        });
+
+                        this.importMessage = `Imported ${data.added} new papers (${data.updated} updated)`;
+                        this.importMessageType = 'success';
+                        this.sourceBibPath = data.source_path;
+                        await this.refreshData();
+                    } catch (e) {
+                        this.importMessage = `Error: ${e.message || e}`;
+                        this.importMessageType = 'error';
+                    } finally {
+                        this.importing = false;
+                    }
+                },
+
+                async importFromPath() {
+                    if (isTauri) {
+                        // In Tauri, use the native dialog
+                        await this.importBibtexTauri();
+                        return;
+                    }
+
+                    if (!this.importPath) return;
+
+                    this.importing = true;
+                    this.importMessage = 'Importing...';
+                    this.importMessageType = 'info';
+
+                    try {
+                        const res = await fetch(`/api/import-bibtex-path`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_path: this.importPath })
+                        });
+                        const data = await res.json();
+
+                        if (res.ok) {
+                            this.importMessage = `Imported ${data.added} papers`;
+                            this.importMessageType = 'success';
+                            if (data.source_path) {
+                                this.sourceBibPath = data.source_path;
+                                const pathParts = data.source_path.split('/');
+                                pathParts.pop();
+                                this.syncPath = pathParts.join('/');
+                            }
+                            await this.refreshData();
+                        } else {
+                            this.importMessage = `Error: ${data.detail}`;
+                            this.importMessageType = 'error';
+                        }
+                    } catch (e) {
+                        this.importMessage = `Error: ${e.message}`;
+                        this.importMessageType = 'error';
+                    } finally {
+                        this.importing = false;
+                    }
+                },
+
+                async syncToFolder() {
+                    if (!this.syncPath) return;
+
+                    this.syncing = true;
+                    this.syncResult = null;
+
+                    try {
+                        const res = await fetch(`/api/sync`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                folder_path: this.syncPath,
+                                include_pdfs: this.syncOptions.pdfs,
+                                include_summaries: this.syncOptions.summaries,
+                                include_bibtex: this.syncOptions.bibtex
+                            })
+                        });
+                        const data = await res.json();
+
+                        if (res.ok) {
+                            this.syncResult = { success: true, ...data };
+                        } else {
+                            this.syncResult = { success: false, error: data.detail };
+                        }
+                    } catch (e) {
+                        this.syncResult = { success: false, error: e.message };
+                    } finally {
+                        this.syncing = false;
+                    }
+                },
+
+                async viewPaperDetail(citekey) {
+                    if (isTauri) {
+                        this.paperDetail = await invoke('get_paper', { vaultPath: this.vaultPath, citekey });
+                    } else {
+                        const res = await fetch(`/api/papers/${citekey}`);
+                        this.paperDetail = await res.json();
+                    }
+
+                    this.paperSummary = null;
+                    this.detailView = 'summary';
+                    this.pdfDoc = null;
+                    this.pdfCurrentPage = 1;
+                    this.pdfTotalPages = 0;
+                    this.paperNotesContent = '';
+                    this.paperHighlights = [];
+                    this.notesModified = false;
+
+                    console.log('Paper status:', this.paperDetail?.status, 'summary_path:', this.paperDetail?.summary_path);
+                    if (this.paperDetail && this.paperDetail.status === 'summarized') {
+                        try {
+                            if (isTauri) {
+                                // Read summary from file - use summary_path if available, else construct it
+                                const summaryPath = this.paperDetail.summary_path
+                                    ? `${this.vaultPath}/${this.paperDetail.summary_path}`
+                                    : `${this.vaultPath}/papers/${citekey}/summary.md`;
+                                console.log('Loading summary from:', summaryPath);
+                                // Use Tauri fs plugin to read file
+                                const { readTextFile } = window.__TAURI__.fs;
+                                this.paperSummary = await readTextFile(summaryPath);
+                                console.log('Summary loaded, length:', this.paperSummary?.length);
+                                // Parse related papers from summary markdown
+                                this.parseRelatedPapersFromSummary();
+                            } else {
+                                const summaryRes = await fetch(`/api/papers/${citekey}/summary`);
+                                const summaryData = await summaryRes.json();
+                                this.paperSummary = summaryData.content;
+                            }
+                        } catch (e) {
+                            console.error('Could not load summary:', e);
+                        }
+                    } else {
+                        console.log('Not loading summary - status is:', this.paperDetail?.status);
+                    }
+
+                    // Load notes if available
+                    if (this.paperDetail && this.paperDetail.pdf_path) {
+                        await this.loadPaperNotes(citekey);
+                    }
+
+                    // Debug: log related papers
+                    console.log('Related papers:', this.paperDetail?.related_papers);
+
+                    this.showPaperDetail = true;
+                },
+
+                closePaperDetail() {
+                    this.showPaperDetail = false;
+                    this.paperDetail = null;
+                    this.paperSummary = null;
+                    this.detailView = 'summary';
+                    this.pdfDoc = null;
+                    this.pdfCurrentPage = 1;
+                    this.pdfTotalPages = 0;
+                    this.paperNotesContent = '';
+                    this.paperHighlights = [];
+                    this.notesModified = false;
+                },
+
+                async addRelatedPaper(related) {
+                    try {
+                        let data;
+                        if (isTauri) {
+                            data = await invoke('add_related_paper', {
+                                vaultPath: this.vaultPath,
+                                request: {
+                                    title: related.title,
+                                    authors: related.authors || [],
+                                    year: related.year,
+                                    source_citekey: this.paperDetail.citekey
+                                }
+                            });
+                        } else {
+                            const res = await fetch(`/api/papers/add-related`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    title: related.title,
+                                    authors: related.authors,
+                                    year: related.year,
+                                    source_citekey: this.paperDetail.citekey
+                                })
+                            });
+                            data = await res.json();
+                        }
+
+                        if (data.status === 'added') {
+                            this.statusMessage = `Added "${related.title.substring(0, 50)}..." to library`;
+                            this.statusType = 'success';
+                            related.vault_citekey = data.citekey;
+                            await this.refreshData();
+                        } else if (data.status === 'exists') {
+                            this.statusMessage = `Paper already exists in library`;
+                            this.statusType = 'info';
+                            related.vault_citekey = data.citekey;
+                        }
+                    } catch (e) {
+                        this.statusMessage = `Error: ${e.message || e}`;
+                        this.statusType = 'error';
+                    }
+                },
+
+                async paperDetailAction(action) {
+                    if (!this.paperDetail) return;
+                    const citekey = this.paperDetail.citekey;
+
+                    if (action === 'find-pdf') {
+                        await this.findPDFSingle(citekey);
+                        await this.viewPaperDetail(citekey);
+                    } else if (action === 'summarize') {
+                        await this.summarizeSinglePaper(citekey);
+                        await this.viewPaperDetail(citekey);
+                    }
+                },
+
+                // PDF Viewer Methods
+
+                get currentPageHighlights() {
+                    return this.paperHighlights.filter(h => h.page === this.pdfCurrentPage);
+                },
+
+                async switchToPdfView() {
+                    if (!this.paperDetail?.pdf_path) {
+                        console.log('No PDF path for paper');
+                        return;
+                    }
+
+                    this.detailView = 'pdf';
+                    // Wait for Alpine to render the template
+                    await this.$nextTick();
+                    // Additional delay to ensure DOM is ready
+                    await new Promise(r => setTimeout(r, 100));
+                    await this.loadPdfAllPages();
+                },
+
+                async loadPdfAllPages() {
+                    let pdfUrl;
+                    if (isTauri) {
+                        const fullPath = `${this.vaultPath}/${this.paperDetail.pdf_path}`;
+                        let convertFileSrc = window.__TAURI__?.core?.convertFileSrc;
+                        if (!convertFileSrc) convertFileSrc = window.__TAURI__?.tauri?.convertFileSrc;
+                        pdfUrl = convertFileSrc ? convertFileSrc(fullPath) : `asset://localhost/${encodeURIComponent(fullPath)}`;
+                    } else {
+                        pdfUrl = `/api/papers/${this.paperDetail.citekey}/pdf`;
+                    }
+
+                    try {
+                        if (typeof pdfjsLib === 'undefined') {
+                            console.error('PDF.js not loaded');
+                            return;
+                        }
+
+                        console.log('Loading PDF from:', pdfUrl);
+                        const loadingTask = pdfjsLib.getDocument(pdfUrl);
+                        const pdfDoc = await loadingTask.promise;
+                        this.pdfDoc = pdfDoc;
+                        this.pdfTotalPages = pdfDoc.numPages;
+                        this.pdfCurrentPage = 1;
+                        this.pdfPageOffsets = [];
+
+                        const container = document.getElementById('pdf-pages-container');
+                        console.log('PDF container:', container);
+                        if (!container) {
+                            console.error('PDF pages container not found!');
+                            return;
+                        }
+                        container.innerHTML = '';
+
+                        // Render all pages
+                        console.log('Rendering', this.pdfTotalPages, 'pages');
+                        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                            try {
+                                const page = await pdfDoc.getPage(pageNum);
+                                await this.renderPdfPageScrollable(page, pageNum, container);
+                                if (pageNum % 10 === 0) console.log('Rendered page', pageNum);
+                            } catch (pageErr) {
+                                console.error('Error rendering page', pageNum, pageErr);
+                            }
+                        }
+                        console.log('All pages rendered, container children:', container.children.length);
+
+                        // Render highlights on all pages
+                        this.renderAllHighlights();
+
+                    } catch (e) {
+                        console.error('Error loading PDF:', e);
+                    }
+                },
+
+                async renderPdfPageScrollable(page, pageNum, container) {
+                    const viewport = page.getViewport({ scale: this.pdfScale });
+                    if (pageNum === 1) console.log('Page 1 viewport:', viewport.width, 'x', viewport.height);
+
+                    // Create wrapper
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'pdf-page-wrapper';
+                    wrapper.dataset.page = pageNum;
+                    wrapper.style.width = `${viewport.width}px`;
+                    wrapper.style.height = `${viewport.height}px`;
+
+                    // Create canvas
+                    const canvas = document.createElement('canvas');
+                    canvas.className = 'pdf-page-canvas';
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    wrapper.appendChild(canvas);
+
+                    // Render page
+                    const ctx = canvas.getContext('2d');
+                    await page.render({ canvasContext: ctx, viewport }).promise;
+
+                    // Create text layer for selection
+                    const textLayer = document.createElement('div');
+                    textLayer.className = 'pdf-text-layer';
+                    textLayer.style.width = `${viewport.width}px`;
+                    textLayer.style.height = `${viewport.height}px`;
+                    wrapper.appendChild(textLayer);
+
+                    // Render text content
+                    const textContent = await page.getTextContent();
+                    textContent.items.forEach(item => {
+                        const span = document.createElement('span');
+                        const tx = item.transform;
+                        const x = tx[4] * this.pdfScale;
+                        const y = viewport.height - (tx[5] * this.pdfScale);
+                        span.textContent = item.str;
+                        span.style.left = `${x}px`;
+                        span.style.top = `${y - (item.height * this.pdfScale)}px`;
+                        span.style.fontSize = `${item.height * this.pdfScale}px`;
+                        span.style.fontFamily = item.fontName || 'sans-serif';
+                        textLayer.appendChild(span);
+                    });
+
+                    // Create highlight layer
+                    const highlightLayer = document.createElement('div');
+                    highlightLayer.className = 'pdf-highlight-layer';
+                    highlightLayer.dataset.page = pageNum;
+                    wrapper.appendChild(highlightLayer);
+
+                    container.appendChild(wrapper);
+
+                    // Store offset for scroll tracking
+                    this.pdfPageOffsets.push({
+                        page: pageNum,
+                        top: wrapper.offsetTop
+                    });
+                },
+
+                updateCurrentPage() {
+                    const container = document.getElementById('pdf-scroll-container');
+                    if (!container || this.pdfPageOffsets.length === 0) return;
+
+                    const scrollTop = container.scrollTop + 100; // Offset for better UX
+                    for (let i = this.pdfPageOffsets.length - 1; i >= 0; i--) {
+                        if (scrollTop >= this.pdfPageOffsets[i].top) {
+                            this.pdfCurrentPage = this.pdfPageOffsets[i].page;
+                            break;
+                        }
+                    }
+                },
+
+                async pdfZoom(factor) {
+                    this.pdfScale *= factor;
+                    this.pdfScale = Math.max(0.5, Math.min(3, this.pdfScale));
+                    await this.loadPdfAllPages();
+                },
+
+                renderAllHighlights() {
+                    // Render saved highlights on their respective pages
+                    this.paperHighlights.forEach(h => {
+                        const layer = document.querySelector(`.pdf-highlight-layer[data-page="${h.page}"]`);
+                        if (layer && h.rects) {
+                            h.rects.forEach(rect => {
+                                const div = document.createElement('div');
+                                div.className = `pdf-highlight ${h.color}`;
+                                div.style.left = `${rect.x * 100}%`;
+                                div.style.top = `${rect.y * 100}%`;
+                                div.style.width = `${rect.width * 100}%`;
+                                div.style.height = `${rect.height * 100}%`;
+                                div.title = h.note || h.text;
+                                div.dataset.highlightId = h.id;
+                                layer.appendChild(div);
+                            });
+                        }
+                    });
+                },
+
+                async highlightSelection() {
+                    const selection = window.getSelection();
+                    if (!selection || selection.isCollapsed) {
+                        alert('Please select some text in the PDF first');
+                        return;
+                    }
+
+                    const text = selection.toString().trim();
+                    if (!text) return;
+
+                    // Find which page the selection is on
+                    let page = 1;
+                    const anchorNode = selection.anchorNode;
+                    if (anchorNode) {
+                        const wrapper = anchorNode.parentElement?.closest('.pdf-page-wrapper');
+                        if (wrapper) {
+                            page = parseInt(wrapper.dataset.page) || 1;
+                        }
+                    }
+
+                    // Get selection rectangles relative to page
+                    const range = selection.getRangeAt(0);
+                    const rects = Array.from(range.getClientRects()).map(rect => {
+                        const wrapper = document.querySelector(`.pdf-page-wrapper[data-page="${page}"]`);
+                        if (!wrapper) return null;
+                        const wrapperRect = wrapper.getBoundingClientRect();
+                        return {
+                            x: (rect.left - wrapperRect.left) / wrapperRect.width,
+                            y: (rect.top - wrapperRect.top) / wrapperRect.height,
+                            width: rect.width / wrapperRect.width,
+                            height: rect.height / wrapperRect.height
+                        };
+                    }).filter(r => r !== null);
+
+                    // Create highlight
+                    const highlight = {
+                        id: Date.now().toString(),
+                        text: text.substring(0, 500),
+                        page,
+                        color: this.highlightColor,
+                        rects,
+                        created_at: new Date().toISOString()
+                    };
+
+                    // Add to list and save
+                    this.paperHighlights.push(highlight);
+                    this.notesModified = true;
+
+                    // Render immediately
+                    const layer = document.querySelector(`.pdf-highlight-layer[data-page="${page}"]`);
+                    if (layer) {
+                        rects.forEach(rect => {
+                            const div = document.createElement('div');
+                            div.className = `pdf-highlight ${this.highlightColor}`;
+                            div.style.left = `${rect.x * 100}%`;
+                            div.style.top = `${rect.y * 100}%`;
+                            div.style.width = `${rect.width * 100}%`;
+                            div.style.height = `${rect.height * 100}%`;
+                            div.title = text;
+                            div.dataset.highlightId = highlight.id;
+                            layer.appendChild(div);
+                        });
+                    }
+
+                    selection.removeAllRanges();
+                    this.notesTab = 'highlights';
+                },
+
+                scrollToHighlight(highlight) {
+                    const wrapper = document.querySelector(`.pdf-page-wrapper[data-page="${highlight.page}"]`);
+                    if (wrapper) {
+                        wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                },
+
+                // Notes Methods
+
+                async loadPaperNotes(citekey) {
+                    try {
+                        if (isTauri) {
+                            const data = await invoke('get_notes', { vaultPath: this.vaultPath, citekey });
+                            this.paperNotesContent = data.content || '';
+                            this.paperHighlights = data.highlights || [];
+                        } else {
+                            const res = await fetch(`/api/papers/${citekey}/notes`);
+                            const data = await res.json();
+                            this.paperNotesContent = data.content || '';
+                            this.paperHighlights = data.highlights || [];
+                        }
+                    } catch (e) {
+                        console.log('Could not load notes:', e);
+                    }
+                },
+
+                async saveNotes() {
+                    if (!this.paperDetail) return;
+
+                    this.savingNotes = true;
+                    try {
+                        if (isTauri) {
+                            await invoke('save_notes', {
+                                vaultPath: this.vaultPath,
+                                citekey: this.paperDetail.citekey,
+                                content: this.paperNotesContent
+                            });
+                        } else {
+                            await fetch(`/api/papers/${this.paperDetail.citekey}/notes`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ content: this.paperNotesContent })
+                            });
+                        }
+                        this.notesModified = false;
+                    } catch (e) {
+                        console.error('Error saving notes:', e);
+                    } finally {
+                        this.savingNotes = false;
+                    }
+                },
+
+                async createHighlightFromSelection() {
+                    const selection = window.getSelection();
+                    if (!selection || selection.isCollapsed) {
+                        alert('Please select text in the PDF first.');
+                        return;
+                    }
+
+                    const selectedText = selection.toString();
+                    if (!selectedText.trim()) {
+                        alert('Please select text in the PDF first.');
+                        return;
+                    }
+
+                    // Get selection bounds relative to canvas
+                    const canvas = document.getElementById('pdf-canvas');
+                    const canvasRect = canvas.getBoundingClientRect();
+                    const range = selection.getRangeAt(0);
+                    const rects = range.getClientRects();
+
+                    const normalizedRects = [];
+                    for (let i = 0; i < rects.length; i++) {
+                        const rect = rects[i];
+                        normalizedRects.push({
+                            x: (rect.left - canvasRect.left) / canvasRect.width,
+                            y: (rect.top - canvasRect.top) / canvasRect.height,
+                            width: rect.width / canvasRect.width,
+                            height: rect.height / canvasRect.height
+                        });
+                    }
+
+                    // Create highlight via API
+                    try {
+                        const res = await fetch(`/api/papers/${this.paperDetail.citekey}/highlights`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                page: this.pdfCurrentPage,
+                                rects: normalizedRects,
+                                text: selectedText,
+                                color: this.highlightColor
+                            })
+                        });
+                        const data = await res.json();
+
+                        // Add to local state
+                        this.paperHighlights.push({
+                            id: data.highlight_id,
+                            page: this.pdfCurrentPage,
+                            rects: normalizedRects,
+                            text: selectedText,
+                            color: this.highlightColor
+                        });
+
+                        // Clear selection
+                        selection.removeAllRanges();
+                    } catch (e) {
+                        console.error('Error creating highlight:', e);
+                    }
+                },
+
+                async deleteHighlight(highlightId) {
+                    if (!confirm('Delete this highlight?')) return;
+
+                    try {
+                        await fetch(`/api/papers/${this.paperDetail.citekey}/highlights/${highlightId}`, {
+                            method: 'DELETE'
+                        });
+                        this.paperHighlights = this.paperHighlights.filter(h => h.id !== highlightId);
+                    } catch (e) {
+                        console.error('Error deleting highlight:', e);
+                    }
+                },
+
+                showHighlightNote(highlight) {
+                    if (highlight.note) {
+                        alert(highlight.note);
+                    }
+                },
+
+                renderNotesPreview(content) {
+                    if (!content) return '<p style="color: var(--text-muted);">Preview will appear here...</p>';
+
+                    // First render markdown
+                    let html = marked.parse(content);
+
+                    // Then render KaTeX (if available)
+                    if (typeof renderMathInElement !== 'undefined') {
+                        const temp = document.createElement('div');
+                        temp.innerHTML = html;
+                        renderMathInElement(temp, {
+                            delimiters: [
+                                { left: '$$', right: '$$', display: true },
+                                { left: '$', right: '$', display: false }
+                            ],
+                            throwOnError: false
+                        });
+                        return temp.innerHTML;
+                    }
+
+                    return html;
+                },
+
+                // Network Graph Methods
+
+                async switchToNetworkView() {
+                    this.currentView = 'network';
+                    await this.$nextTick();
+                    await this.loadNetworkGraph();
+                },
+
+                async loadNetworkGraph() {
+                    try {
+                        if (isTauri) {
+                            const data = await invoke('get_graph', { vaultPath: this.vaultPath });
+                            this.networkNodes = data.nodes;
+                            this.networkEdges = data.edges;
+                        } else {
+                            const res = await fetch(`/api/graph`);
+                            const data = await res.json();
+                            this.networkNodes = data.nodes;
+                            this.networkEdges = data.edges;
+                        }
+                        this.initNetworkGraph();
+                    } catch (e) {
+                        console.error('Error loading graph:', e);
+                    }
+                },
+
+                initNetworkGraph() {
+                    const container = document.getElementById('network-graph');
+                    if (!container || typeof vis === 'undefined') {
+                        console.error('Network graph container or vis.js not found');
+                        return;
+                    }
+
+                    // Define status-based colors
+                    const statusColors = {
+                        discovered: '#8B949E',
+                        downloaded: '#2D6A4F',
+                        summarized: '#5B4B8A',
+                    };
+
+                    // Create nodes dataset with colors
+                    const nodes = new vis.DataSet(this.networkNodes.map(n => ({
+                        id: n.id,
+                        label: n.label,
+                        title: `${n.title}\n(${n.year || 'n.d.'})`,
+                        color: {
+                            background: statusColors[n.group] || '#8B949E',
+                            border: statusColors[n.group] || '#8B949E',
+                            highlight: {
+                                background: statusColors[n.group] || '#8B949E',
+                                border: '#22324A'
+                            }
+                        }
+                    })));
+
+                    // Create edges dataset
+                    const edges = new vis.DataSet(this.networkEdges.map(e => ({
+                        from: e.from,
+                        to: e.to,
+                        title: e.title,
+                        smooth: { type: 'continuous' }
+                    })));
+
+                    // Network options
+                    const options = {
+                        nodes: {
+                            font: { size: 12, face: 'Inter, sans-serif' },
+                            borderWidth: 2,
+                            shape: 'dot',
+                            size: 15
+                        },
+                        edges: {
+                            width: 1,
+                            color: { color: '#D4C9B8', highlight: '#22324A' }
+                        },
+                        physics: {
+                            barnesHut: {
+                                gravitationalConstant: -2000,
+                                springLength: 150
+                            }
+                        },
+                        interaction: {
+                            hover: true,
+                            tooltipDelay: 200
+                        }
+                    };
+
+                    // Create network
+                    this.networkGraph = new vis.Network(container, { nodes, edges }, options);
+
+                    // Handle node click -> view paper detail
+                    this.networkGraph.on('click', (params) => {
+                        if (params.nodes.length > 0) {
+                            const citekey = params.nodes[0];
+                            this.viewPaperDetail(citekey);
+                        }
+                    });
+
+                    // Handle double-click -> set as connection source
+                    this.networkGraph.on('doubleClick', (params) => {
+                        if (params.nodes.length > 0) {
+                            this.connectSource = params.nodes[0];
+                        }
+                    });
+                },
+
+                async connectPapers() {
+                    if (!this.connectSource || !this.connectTarget) return;
+
+                    try {
+                        let result;
+                        if (isTauri) {
+                            result = await invoke('connect_papers', {
+                                vaultPath: this.vaultPath,
+                                source: this.connectSource,
+                                target: this.connectTarget,
+                                reason: this.connectReason
+                            });
+                        } else {
+                            const res = await fetch(`/api/graph/connect`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    source: this.connectSource,
+                                    target: this.connectTarget,
+                                    reason: this.connectReason
+                                })
+                            });
+                            const data = await res.json();
+                            result = data.status;
+                        }
+
+                        if (result === 'connected') {
+                            this.statusMessage = 'Papers connected successfully';
+                            this.statusType = 'success';
+                            await this.loadNetworkGraph();
+                        } else if (result === 'exists') {
+                            this.statusMessage = 'Connection already exists';
+                            this.statusType = 'info';
+                        }
+
+                        // Clear form
+                        this.connectSource = '';
+                        this.connectTarget = '';
+                        this.connectReason = '';
+                    } catch (e) {
+                        this.statusMessage = `Error: ${e.message || e}`;
+                        this.statusType = 'error';
+                    }
+                }
+            };
+        }
+
+        window.CHECKPOINT3 = true;
+        window.app = app;  // Make sure it's globally accessible
+    </script>
+    <script>
+        // Debug check right before Alpine loads
+        console.log('Pre-Alpine check - app exists:', typeof app);
+        console.log('Script started?', window.SCRIPT_STARTED);
+        if (typeof app === 'undefined') {
+            document.body.innerHTML = '<h1 style="color:red">ERROR: app() not defined.<br>CP1C: ' + !!window.CHECKPOINT1C + ' CP2: ' + !!window.CHECKPOINT2 + ' CP2B: ' + !!window.CHECKPOINT2B + ' CP3: ' + !!window.CHECKPOINT3 + '</h1>';
+        }
+    </script>
+    <!-- Load Alpine.js AFTER app() is defined -->
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</body>
+</html>

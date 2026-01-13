@@ -16,6 +16,22 @@
     <!-- Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
+
+    <!-- KaTeX for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+    <!-- vis.js for network graph -->
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+
     <style>
         /* Design Tokens */
         :root {
@@ -941,6 +957,392 @@
         .btn-browse:hover {
             background: var(--surface-hover);
         }
+
+        /* User info in sidebar */
+        .user-info-sidebar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-3) var(--space-4);
+            border-top: 1px solid var(--border);
+            margin-top: var(--space-2);
+        }
+
+        .user-avatar-small {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .user-name-small {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* View toggle buttons */
+        .view-toggle {
+            display: flex;
+            background: var(--surface);
+            border-radius: 6px;
+            padding: 2px;
+        }
+
+        .view-toggle button {
+            padding: 6px 12px;
+            border: none;
+            background: none;
+            border-radius: 4px;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .view-toggle button.active {
+            background: white;
+            color: var(--text);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .view-toggle button:hover:not(.active) {
+            color: var(--text);
+        }
+
+        /* PDF Viewer */
+        .pdf-viewer-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #525659;
+            overflow: hidden;
+        }
+
+        .pdf-toolbar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-2) var(--space-4);
+            background: #3D4043;
+            color: white;
+        }
+
+        .pdf-toolbar button {
+            padding: 6px 12px;
+            background: rgba(255,255,255,0.1);
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 0.8125rem;
+        }
+
+        .pdf-toolbar button:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .pdf-toolbar button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pdf-page-info {
+            font-size: 0.8125rem;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .highlight-colors {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+
+        .highlight-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.1s ease;
+        }
+
+        .highlight-color:hover {
+            transform: scale(1.1);
+        }
+
+        .highlight-color.active {
+            border-color: white;
+        }
+
+        .highlight-color.yellow { background: rgba(255, 235, 59, 0.7); }
+        .highlight-color.green { background: rgba(76, 175, 80, 0.7); }
+        .highlight-color.blue { background: rgba(33, 150, 243, 0.7); }
+        .highlight-color.pink { background: rgba(233, 30, 99, 0.7); }
+
+        .pdf-canvas-container {
+            flex: 1;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            padding: var(--space-4);
+        }
+
+        .pdf-page-wrapper {
+            position: relative;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .pdf-canvas {
+            display: block;
+        }
+
+        .pdf-text-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
+            pointer-events: all;
+        }
+
+        .pdf-text-layer span {
+            position: absolute;
+            white-space: pre;
+            color: transparent;
+            pointer-events: all;
+            cursor: text;
+        }
+
+        .pdf-text-layer ::selection {
+            background: rgba(255, 235, 59, 0.4);
+        }
+
+        .pdf-highlight-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        .pdf-highlight {
+            position: absolute;
+            pointer-events: auto;
+            cursor: pointer;
+            transition: opacity 0.15s ease;
+        }
+
+        .pdf-highlight:hover {
+            opacity: 0.8;
+        }
+
+        .pdf-highlight.yellow { background: rgba(255, 235, 59, 0.4); }
+        .pdf-highlight.green { background: rgba(76, 175, 80, 0.4); }
+        .pdf-highlight.blue { background: rgba(33, 150, 243, 0.4); }
+        .pdf-highlight.pink { background: rgba(233, 30, 99, 0.4); }
+
+        /* Notes Panel */
+        .notes-panel {
+            width: 350px;
+            background: white;
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .notes-panel-header {
+            padding: var(--space-3) var(--space-4);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .notes-panel-header h3 {
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .notes-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .notes-tab {
+            flex: 1;
+            padding: var(--space-2) var(--space-3);
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .notes-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        .notes-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-4);
+        }
+
+        .notes-textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: var(--space-3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-size: 0.8125rem;
+            resize: vertical;
+            margin-bottom: var(--space-3);
+        }
+
+        .notes-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .notes-preview {
+            padding: var(--space-3);
+            background: var(--surface);
+            border-radius: 6px;
+            font-family: var(--font-reading);
+            font-size: 0.9375rem;
+            line-height: 1.6;
+        }
+
+        .highlights-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+        }
+
+        .highlight-item {
+            padding: var(--space-3);
+            background: var(--surface);
+            border-radius: 6px;
+            border-left: 3px solid;
+            position: relative;
+        }
+
+        .highlight-item.yellow { border-left-color: #FFEB3B; }
+        .highlight-item.green { border-left-color: #4CAF50; }
+        .highlight-item.blue { border-left-color: #2196F3; }
+        .highlight-item.pink { border-left-color: #E91E63; }
+
+        .highlight-item-text {
+            font-size: 0.875rem;
+            line-height: 1.5;
+            margin-bottom: var(--space-2);
+        }
+
+        .highlight-item-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .highlight-item-delete {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .highlight-item-delete:hover {
+            background: var(--surface-hover);
+            color: var(--status-failed);
+        }
+
+        /* Network Graph */
+        .graph-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg);
+        }
+
+        .graph-toolbar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .graph-toolbar input {
+            flex: 1;
+            max-width: 300px;
+            padding: var(--space-2) var(--space-3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.875rem;
+        }
+
+        .graph-toolbar input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .graph-canvas {
+            flex: 1;
+            min-height: 500px;
+        }
+
+        .graph-connection-panel {
+            padding: var(--space-4);
+            background: white;
+            border-top: 1px solid var(--border);
+        }
+
+        .graph-connection-panel h4 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: var(--space-3);
+        }
+
+        .connection-form {
+            display: flex;
+            gap: var(--space-2);
+            align-items: flex-end;
+        }
+
+        .connection-form .form-group {
+            flex: 1;
+        }
+
+        .connection-form label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: var(--space-1);
+        }
+
+        .connection-form input {
+            width: 100%;
+            padding: var(--space-2);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8125rem;
+        }
     </style>
 </head>
 <body x-data="app()" x-init="init()">
@@ -952,12 +1354,23 @@
             </div>
 
             <nav class="sidebar-nav">
-                <button class="nav-item active">
+                <button class="nav-item" :class="{ active: currentView === 'library' }" @click="currentView = 'library'">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/>
                     </svg>
                     <span>Library</span>
                     <span class="nav-count" x-text="stats.total || 0"></span>
+                </button>
+                <button class="nav-item" :class="{ active: currentView === 'network' }" @click="switchToNetworkView()">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="3"/>
+                        <circle cx="5" cy="6" r="2"/>
+                        <circle cx="19" cy="6" r="2"/>
+                        <circle cx="5" cy="18" r="2"/>
+                        <circle cx="19" cy="18" r="2"/>
+                        <path d="M7 6.5l2.5 4M17 6.5l-2.5 4M7 17.5l2.5-4M17 17.5l-2.5-4"/>
+                    </svg>
+                    <span>Network</span>
                 </button>
             </nav>
 
@@ -992,6 +1405,22 @@
                     </svg>
                     <span>Sync</span>
                 </button>
+
+                <!-- User info (if authenticated) -->
+                <template x-if="currentUser">
+                    <div class="user-info-sidebar">
+                        <img :src="currentUser.picture" class="user-avatar-small" x-show="currentUser.picture">
+                        <span class="user-name-small" x-text="currentUser.name || currentUser.email"></span>
+                    </div>
+                </template>
+                <template x-if="currentUser">
+                    <a href="/auth/logout" class="nav-item">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/>
+                        </svg>
+                        <span>Logout</span>
+                    </a>
+                </template>
             </div>
         </aside>
 
@@ -1069,94 +1498,128 @@
                 </template>
 
                 <!-- Library View -->
-                <div>
-                    <!-- Stats Cards -->
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); max-width: 500px;">
-                        <div class="card stat-card" :class="{ active: currentFilter === 'discovered' }" @click="filterByStatus('discovered')">
-                            <div class="stat-value" x-text="stats.by_status?.discovered || 0"></div>
-                            <div class="stat-label">
-                                <span class="status-dot discovered" style="margin-right: 4px;"></span>
-                                <span>discovered</span>
+                <template x-if="currentView === 'library'">
+                    <div>
+                        <!-- Stats Cards -->
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-bottom: var(--space-6); max-width: 500px;">
+                            <div class="card stat-card" :class="{ active: currentFilter === 'discovered' }" @click="filterByStatus('discovered')">
+                                <div class="stat-value" x-text="stats.by_status?.discovered || 0"></div>
+                                <div class="stat-label">
+                                    <span class="status-dot discovered" style="margin-right: 4px;"></span>
+                                    <span>discovered</span>
+                                </div>
+                            </div>
+                            <div class="card stat-card" :class="{ active: currentFilter === 'downloaded' }" @click="filterByStatus('downloaded')">
+                                <div class="stat-value" x-text="stats.by_status?.downloaded || 0"></div>
+                                <div class="stat-label">
+                                    <span class="status-dot downloaded" style="margin-right: 4px;"></span>
+                                    <span>downloaded</span>
+                                </div>
+                            </div>
+                            <div class="card stat-card" :class="{ active: currentFilter === 'summarized' }" @click="filterByStatus('summarized')">
+                                <div class="stat-value" x-text="stats.by_status?.summarized || 0"></div>
+                                <div class="stat-label">
+                                    <span class="status-dot summarized" style="margin-right: 4px;"></span>
+                                    <span>summarized</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="card stat-card" :class="{ active: currentFilter === 'downloaded' }" @click="filterByStatus('downloaded')">
-                            <div class="stat-value" x-text="stats.by_status?.downloaded || 0"></div>
-                            <div class="stat-label">
-                                <span class="status-dot downloaded" style="margin-right: 4px;"></span>
-                                <span>downloaded</span>
-                            </div>
-                        </div>
-                        <div class="card stat-card" :class="{ active: currentFilter === 'summarized' }" @click="filterByStatus('summarized')">
-                            <div class="stat-value" x-text="stats.by_status?.summarized || 0"></div>
-                            <div class="stat-label">
-                                <span class="status-dot summarized" style="margin-right: 4px;"></span>
-                                <span>summarized</span>
-                            </div>
-                        </div>
-                    </div>
 
-                    <!-- Actions Bar -->
-                    <div class="actions-bar">
-                        <button class="btn-secondary" :class="{ 'active': !currentFilter }" @click="clearFilter()">All Papers</button>
-                    </div>
+                        <!-- Actions Bar -->
+                        <div class="actions-bar">
+                            <button class="btn-secondary" :class="{ 'active': !currentFilter }" @click="clearFilter()">All Papers</button>
+                        </div>
 
-                    <!-- Papers Table -->
-                    <div class="card" style="overflow: hidden;">
-                        <table class="papers-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 32px;"></th>
-                                    <th>Paper</th>
-                                    <th style="width: 80px;">Year</th>
-                                    <th style="width: 100px;">Status</th>
-                                    <th style="width: 100px;">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <template x-for="paper in papers" :key="paper.citekey">
-                                    <tr class="paper-row" @click="viewPaperDetail(paper.citekey)">
-                                        <td>
-                                            <span class="status-dot" :class="paper.status"></span>
-                                        </td>
-                                        <td>
-                                            <div class="paper-title" x-text="paper.title"></div>
-                                            <div class="paper-authors" x-text="paper.authors?.join(', ')"></div>
-                                            <div class="paper-citekey" x-text="paper.citekey"></div>
-                                        </td>
-                                        <td style="color: var(--text-muted);" x-text="paper.year || '—'"></td>
-                                        <td>
-                                            <span class="status-badge" :class="paper.status" x-text="paper.status"></span>
-                                        </td>
-                                        <td @click.stop>
-                                            <div class="paper-row-actions" style="opacity: 1;">
-                                                <template x-if="paper.pdf_path">
-                                                    <a :href="`${apiBase}/api/papers/${paper.citekey}/pdf`" target="_blank" class="btn-text" style="padding: 4px;">PDF</a>
-                                                </template>
-                                                <template x-if="paper.status === 'discovered'">
-                                                    <button @click="findPDFSingle(paper.citekey)" :disabled="loadingPaper === paper.citekey" class="btn-text" style="padding: 4px;">
-                                                        <span x-show="loadingPaper !== paper.citekey">Find PDF</span>
-                                                        <span x-show="loadingPaper === paper.citekey">...</span>
-                                                    </button>
-                                                </template>
-                                            </div>
-                                        </td>
+                        <!-- Papers Table -->
+                        <div class="card" style="overflow: hidden;">
+                            <table class="papers-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 32px;"></th>
+                                        <th>Paper</th>
+                                        <th style="width: 80px;">Year</th>
+                                        <th style="width: 100px;">Status</th>
+                                        <th style="width: 100px;">Actions</th>
                                     </tr>
-                                </template>
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    <template x-for="paper in papers" :key="paper.citekey">
+                                        <tr class="paper-row" @click="viewPaperDetail(paper.citekey)">
+                                            <td>
+                                                <span class="status-dot" :class="paper.status"></span>
+                                            </td>
+                                            <td>
+                                                <div class="paper-title" x-text="paper.title"></div>
+                                                <div class="paper-authors" x-text="paper.authors?.join(', ')"></div>
+                                                <div class="paper-citekey" x-text="paper.citekey"></div>
+                                            </td>
+                                            <td style="color: var(--text-muted);" x-text="paper.year || '—'"></td>
+                                            <td>
+                                                <span class="status-badge" :class="paper.status" x-text="paper.status"></span>
+                                            </td>
+                                            <td @click.stop>
+                                                <div class="paper-row-actions" style="opacity: 1;">
+                                                    <template x-if="paper.pdf_path">
+                                                        <a :href="`${apiBase}/api/papers/${paper.citekey}/pdf`" target="_blank" class="btn-text" style="padding: 4px;">PDF</a>
+                                                    </template>
+                                                    <template x-if="paper.status === 'discovered'">
+                                                        <button @click="findPDFSingle(paper.citekey)" :disabled="loadingPaper === paper.citekey" class="btn-text" style="padding: 4px;">
+                                                            <span x-show="loadingPaper !== paper.citekey">Find PDF</span>
+                                                            <span x-show="loadingPaper === paper.citekey">...</span>
+                                                        </button>
+                                                    </template>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
 
-                        <!-- Pagination -->
-                        <div class="pagination">
-                            <div class="pagination-info">
-                                Showing <span x-text="papers.length"></span> of <span x-text="totalPapers"></span> papers
-                            </div>
-                            <div class="pagination-buttons">
-                                <button class="btn-secondary" @click="prevPage()" :disabled="offset === 0">Previous</button>
-                                <button class="btn-secondary" @click="nextPage()" :disabled="offset + 100 >= totalPapers">Next</button>
+                            <!-- Pagination -->
+                            <div class="pagination">
+                                <div class="pagination-info">
+                                    Showing <span x-text="papers.length"></span> of <span x-text="totalPapers"></span> papers
+                                </div>
+                                <div class="pagination-buttons">
+                                    <button class="btn-secondary" @click="prevPage()" :disabled="offset === 0">Previous</button>
+                                    <button class="btn-secondary" @click="nextPage()" :disabled="offset + 100 >= totalPapers">Next</button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </template>
+
+                <!-- Network Graph View -->
+                <template x-if="currentView === 'network'">
+                    <div class="graph-container">
+                        <div class="graph-toolbar">
+                            <input type="text" placeholder="Search papers..." x-model="searchQuery" @keyup.enter="searchPapers()">
+                        </div>
+
+                        <div id="network-graph" class="graph-canvas"></div>
+
+                        <div class="graph-connection-panel">
+                            <h4>Connect Papers</h4>
+                            <div class="connection-form">
+                                <div class="form-group">
+                                    <label>Source Paper</label>
+                                    <input type="text" x-model="connectSource" placeholder="citekey">
+                                </div>
+                                <div class="form-group">
+                                    <label>Target Paper</label>
+                                    <input type="text" x-model="connectTarget" placeholder="citekey">
+                                </div>
+                                <div class="form-group">
+                                    <label>Reason (optional)</label>
+                                    <input type="text" x-model="connectReason" placeholder="Why related?">
+                                </div>
+                                <button class="btn-primary" @click="connectPapers()" :disabled="!connectSource || !connectTarget">
+                                    Connect
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
 
             </div>
         </div>
@@ -1168,6 +1631,15 @@
             <button class="btn-secondary" @click="closePaperDetail()">
                 <span style="margin-right: 4px;">&larr;</span> Back
             </button>
+
+            <!-- View Toggle (only show if PDF exists) -->
+            <template x-if="paperDetail?.pdf_path">
+                <div class="view-toggle">
+                    <button :class="{ active: detailView === 'summary' }" @click="detailView = 'summary'">Summary</button>
+                    <button :class="{ active: detailView === 'pdf' }" @click="switchToPdfView()">PDF</button>
+                </div>
+            </template>
+
             <div class="paper-detail-actions">
                 <span class="status-badge" :class="paperDetail?.status" x-text="paperDetail?.status"></span>
                 <template x-if="paperDetail?.status === 'discovered'">
@@ -1176,7 +1648,7 @@
                 <template x-if="paperDetail?.status === 'downloaded' || paperDetail?.status === 'summarized'">
                     <button class="btn-primary" @click="paperDetailAction('summarize')" x-text="paperDetail?.status === 'summarized' ? 'Re-summarize' : 'Summarize'"></button>
                 </template>
-                <template x-if="paperDetail?.pdf_path">
+                <template x-if="paperDetail?.pdf_path && detailView === 'summary'">
                     <a :href="`${apiBase}/api/papers/${paperDetail.citekey}/pdf`" target="_blank" class="btn-secondary">
                         Open PDF
                     </a>
@@ -1185,101 +1657,198 @@
         </header>
 
         <div class="paper-detail-content">
-            <!-- Left margin rail -->
-            <aside class="paper-margin">
-                <div class="margin-section">
-                    <span class="margin-label">Year</span>
-                    <span class="margin-value" x-text="paperDetail?.year || '—'"></span>
-                </div>
-                <div class="margin-section">
-                    <span class="margin-label">Journal</span>
-                    <span class="margin-value" x-text="paperDetail?.journal || 'Working Paper'"></span>
-                </div>
-                <div class="margin-section">
-                    <span class="margin-label">Citekey</span>
-                    <code class="margin-value font-mono" style="font-size: 0.75rem;" x-text="paperDetail?.citekey"></code>
-                </div>
-                <template x-if="paperDetail?.doi">
+            <!-- Summary View -->
+            <template x-if="detailView === 'summary'">
+                <!-- Left margin rail -->
+                <aside class="paper-margin">
                     <div class="margin-section">
-                        <span class="margin-label">DOI</span>
-                        <a :href="'https://doi.org/' + paperDetail.doi" class="margin-link" x-text="paperDetail.doi" target="_blank"></a>
+                        <span class="margin-label">Year</span>
+                        <span class="margin-value" x-text="paperDetail?.year || '—'"></span>
                     </div>
-                </template>
-                <template x-if="paperDetail?.url">
                     <div class="margin-section">
-                        <span class="margin-label">URL</span>
-                        <a :href="paperDetail.url" class="margin-link" target="_blank">Link</a>
+                        <span class="margin-label">Journal</span>
+                        <span class="margin-value" x-text="paperDetail?.journal || 'Working Paper'"></span>
                     </div>
-                </template>
-                <template x-if="paperDetail?.added_at">
                     <div class="margin-section">
-                        <span class="margin-label">Added</span>
-                        <span class="margin-value" x-text="new Date(paperDetail.added_at).toLocaleDateString()"></span>
+                        <span class="margin-label">Citekey</span>
+                        <code class="margin-value font-mono" style="font-size: 0.75rem;" x-text="paperDetail?.citekey"></code>
                     </div>
-                </template>
-            </aside>
-
-            <!-- Main reading area -->
-            <main class="paper-main">
-                <h1 class="h1" x-text="paperDetail?.title"></h1>
-                <p class="paper-authors-full" x-text="paperDetail?.authors?.join(', ')"></p>
-
-                <!-- BibTeX Citation -->
-                <div class="citation-block">
-                    <div class="citation-block-header">BibTeX Citation</div>
-                    <template x-if="paperDetail?.bibtex">
-                        <pre x-text="paperDetail.bibtex"></pre>
+                    <template x-if="paperDetail?.doi">
+                        <div class="margin-section">
+                            <span class="margin-label">DOI</span>
+                            <a :href="'https://doi.org/' + paperDetail.doi" class="margin-link" x-text="paperDetail.doi" target="_blank"></a>
+                        </div>
                     </template>
-                    <template x-if="!paperDetail?.bibtex">
-                        <pre x-text="formatBibtex(paperDetail)"></pre>
+                    <template x-if="paperDetail?.url">
+                        <div class="margin-section">
+                            <span class="margin-label">URL</span>
+                            <a :href="paperDetail.url" class="margin-link" target="_blank">Link</a>
+                        </div>
                     </template>
+                    <template x-if="paperDetail?.added_at">
+                        <div class="margin-section">
+                            <span class="margin-label">Added</span>
+                            <span class="margin-value" x-text="new Date(paperDetail.added_at).toLocaleDateString()"></span>
+                        </div>
+                    </template>
+                </aside>
+
+                <!-- Main reading area -->
+                <main class="paper-main">
+                    <h1 class="h1" x-text="paperDetail?.title"></h1>
+                    <p class="paper-authors-full" x-text="paperDetail?.authors?.join(', ')"></p>
+
+                    <!-- BibTeX Citation -->
+                    <div class="citation-block">
+                        <div class="citation-block-header">BibTeX Citation</div>
+                        <template x-if="paperDetail?.bibtex">
+                            <pre x-text="paperDetail.bibtex"></pre>
+                        </template>
+                        <template x-if="!paperDetail?.bibtex">
+                            <pre x-text="formatBibtex(paperDetail)"></pre>
+                        </template>
+                    </div>
+
+                    <!-- Abstract -->
+                    <template x-if="paperDetail?.abstract">
+                        <section class="paper-section">
+                            <h2 class="h2">Abstract</h2>
+                            <p class="body-reading" x-text="paperDetail.abstract"></p>
+                        </section>
+                    </template>
+
+                    <!-- Summary -->
+                    <template x-if="paperSummary">
+                        <section class="paper-section">
+                            <h2 class="h2">Summary</h2>
+                            <div class="body-reading summary-content markdown-body" x-html="renderMarkdown(paperSummary)"></div>
+                        </section>
+                    </template>
+
+                    <!-- Related Papers -->
+                    <template x-if="paperDetail?.related_papers?.length > 0">
+                        <section class="paper-section">
+                            <h2 class="h2">Related Papers</h2>
+                            <template x-for="related in paperDetail.related_papers" :key="related.title">
+                                <div class="related-paper-card">
+                                    <div class="related-paper-title" x-text="related.title"></div>
+                                    <div class="related-paper-meta">
+                                        <span x-text="related.authors?.join(', ') || 'Unknown authors'"></span>
+                                        (<span x-text="related.year || 'n.d.'"></span>)
+                                    </div>
+                                    <div class="related-paper-reason" x-text="related.why_related"></div>
+                                    <div class="related-paper-actions">
+                                        <template x-if="related.vault_citekey">
+                                            <button @click="viewPaperDetail(related.vault_citekey)" class="link-btn">
+                                                View in Library
+                                            </button>
+                                        </template>
+                                        <template x-if="!related.vault_citekey">
+                                            <button @click="addRelatedPaper(related)" class="link-btn">
+                                                + Add to Library
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </section>
+                    </template>
+                </main>
+            </template>
+
+            <!-- PDF View -->
+            <template x-if="detailView === 'pdf'">
+                <div class="pdf-viewer-container">
+                    <!-- PDF Toolbar -->
+                    <div class="pdf-toolbar">
+                        <button @click="pdfPrevPage()" :disabled="pdfCurrentPage <= 1">&#8592; Prev</button>
+                        <span class="pdf-page-info">Page <span x-text="pdfCurrentPage"></span> of <span x-text="pdfTotalPages"></span></span>
+                        <button @click="pdfNextPage()" :disabled="pdfCurrentPage >= pdfTotalPages">Next &#8594;</button>
+
+                        <div class="highlight-colors">
+                            <div class="highlight-color yellow" :class="{ active: highlightColor === 'yellow' }" @click="highlightColor = 'yellow'" title="Yellow"></div>
+                            <div class="highlight-color green" :class="{ active: highlightColor === 'green' }" @click="highlightColor = 'green'" title="Green"></div>
+                            <div class="highlight-color blue" :class="{ active: highlightColor === 'blue' }" @click="highlightColor = 'blue'" title="Blue"></div>
+                            <div class="highlight-color pink" :class="{ active: highlightColor === 'pink' }" @click="highlightColor = 'pink'" title="Pink"></div>
+                        </div>
+
+                        <button @click="createHighlightFromSelection()">Highlight Selection</button>
+                    </div>
+
+                    <!-- PDF Canvas -->
+                    <div class="pdf-canvas-container">
+                        <div class="pdf-page-wrapper">
+                            <canvas id="pdf-canvas" class="pdf-canvas"></canvas>
+                            <div id="pdf-text-layer" class="pdf-text-layer"></div>
+                            <div id="pdf-highlight-layer" class="pdf-highlight-layer">
+                                <template x-for="h in currentPageHighlights" :key="h.id">
+                                    <template x-for="(rect, i) in h.rects" :key="i">
+                                        <div class="pdf-highlight"
+                                             :class="h.color"
+                                             :style="`left: ${rect.x * 100}%; top: ${rect.y * 100}%; width: ${rect.width * 100}%; height: ${rect.height * 100}%;`"
+                                             @click="showHighlightNote(h)"
+                                             :title="h.note || h.text"></div>
+                                    </template>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+            </template>
 
-                <!-- Abstract -->
-                <template x-if="paperDetail?.abstract">
-                    <section class="paper-section">
-                        <h2 class="h2">Abstract</h2>
-                        <p class="body-reading" x-text="paperDetail.abstract"></p>
-                    </section>
-                </template>
+            <!-- Notes Panel (shows in both views when PDF exists) -->
+            <template x-if="paperDetail?.pdf_path && detailView === 'pdf'">
+                <aside class="notes-panel">
+                    <div class="notes-panel-header">
+                        <h3>Notes</h3>
+                        <button class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px;" @click="saveNotes()" :disabled="!notesModified">
+                            <span x-show="!savingNotes">Save</span>
+                            <span x-show="savingNotes">Saving...</span>
+                        </button>
+                    </div>
 
-                <!-- Summary -->
-                <template x-if="paperSummary">
-                    <section class="paper-section">
-                        <h2 class="h2">Summary</h2>
-                        <div class="body-reading summary-content markdown-body" x-html="renderMarkdown(paperSummary)"></div>
-                    </section>
-                </template>
+                    <div class="notes-tabs">
+                        <button class="notes-tab" :class="{ active: notesTab === 'notes' }" @click="notesTab = 'notes'">Notes</button>
+                        <button class="notes-tab" :class="{ active: notesTab === 'highlights' }" @click="notesTab = 'highlights'">
+                            Highlights (<span x-text="paperHighlights.length"></span>)
+                        </button>
+                    </div>
 
-                <!-- Related Papers -->
-                <template x-if="paperDetail?.related_papers?.length > 0">
-                    <section class="paper-section">
-                        <h2 class="h2">Related Papers</h2>
-                        <template x-for="related in paperDetail.related_papers" :key="related.title">
-                            <div class="related-paper-card">
-                                <div class="related-paper-title" x-text="related.title"></div>
-                                <div class="related-paper-meta">
-                                    <span x-text="related.authors?.join(', ') || 'Unknown authors'"></span>
-                                    (<span x-text="related.year || 'n.d.'"></span>)
-                                </div>
-                                <div class="related-paper-reason" x-text="related.why_related"></div>
-                                <div class="related-paper-actions">
-                                    <template x-if="related.vault_citekey">
-                                        <button @click="viewPaperDetail(related.vault_citekey)" class="link-btn">
-                                            View in Library
-                                        </button>
-                                    </template>
-                                    <template x-if="!related.vault_citekey">
-                                        <button @click="addRelatedPaper(related)" class="link-btn">
-                                            + Add to Library
-                                        </button>
-                                    </template>
-                                </div>
+                    <div class="notes-content">
+                        <!-- Notes Tab -->
+                        <template x-if="notesTab === 'notes'">
+                            <div>
+                                <textarea class="notes-textarea"
+                                          x-model="paperNotesContent"
+                                          @input="notesModified = true"
+                                          placeholder="Write notes here... Supports LaTeX: $E = mc^2$"></textarea>
+                                <div class="notes-preview" x-html="renderNotesPreview(paperNotesContent)"></div>
                             </div>
                         </template>
-                    </section>
-                </template>
-            </main>
+
+                        <!-- Highlights Tab -->
+                        <template x-if="notesTab === 'highlights'">
+                            <div class="highlights-list">
+                                <template x-if="paperHighlights.length === 0">
+                                    <p style="color: var(--text-muted); font-size: 0.875rem;">No highlights yet. Select text in the PDF and click "Highlight Selection".</p>
+                                </template>
+                                <template x-for="h in paperHighlights" :key="h.id">
+                                    <div class="highlight-item" :class="h.color">
+                                        <div class="highlight-item-text" x-text="h.text || '(No text)'"></div>
+                                        <template x-if="h.note">
+                                            <div style="font-size: 0.8125rem; font-style: italic; margin-top: 4px; color: var(--text-muted);" x-text="h.note"></div>
+                                        </template>
+                                        <div class="highlight-item-meta">
+                                            <span>Page <span x-text="h.page"></span></span>
+                                            <button class="highlight-item-delete" @click="deleteHighlight(h.id)">Delete</button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </aside>
+            </template>
         </div>
     </div>
 
@@ -1465,6 +2034,7 @@
                 jobPollInterval: null,
 
                 // UI state
+                currentView: 'library',  // 'library' or 'network'
                 showImportModal: false,
                 showSyncModal: false,
                 showPaperDetail: false,
@@ -1496,8 +2066,33 @@
                 browseDirectories: [],
                 browseBibFiles: [],
 
+                // Auth state
+                currentUser: null,
+
+                // PDF viewer state
+                detailView: 'summary',  // 'summary' or 'pdf'
+                pdfDoc: null,
+                pdfCurrentPage: 1,
+                pdfTotalPages: 0,
+                highlightColor: 'yellow',
+
+                // Notes state
+                notesTab: 'notes',  // 'notes' or 'highlights'
+                paperNotesContent: '',
+                paperHighlights: [],
+                notesModified: false,
+                savingNotes: false,
+
+                // Network graph state
+                networkGraph: null,
+                networkNodes: [],
+                networkEdges: [],
+                connectSource: '',
+                connectTarget: '',
+                connectReason: '',
+
                 get currentViewLabel() {
-                    return 'Library';
+                    return this.currentView === 'network' ? 'Network Graph' : 'Library';
                 },
 
                 formatBibtex(paper) {
@@ -1553,9 +2148,22 @@
                 },
 
                 async init() {
+                    await this.checkAuth();
                     await this.refreshData();
                     await this.loadConfig();
                     this.startJobPolling();
+                },
+
+                async checkAuth() {
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/me`);
+                        const data = await res.json();
+                        if (data.authenticated) {
+                            this.currentUser = data.user;
+                        }
+                    } catch (e) {
+                        console.log('Auth check failed:', e);
+                    }
                 },
 
                 async loadConfig() {
@@ -1864,6 +2472,13 @@
                     const res = await fetch(`${this.apiBase}/api/papers/${citekey}`);
                     this.paperDetail = await res.json();
                     this.paperSummary = null;
+                    this.detailView = 'summary';
+                    this.pdfDoc = null;
+                    this.pdfCurrentPage = 1;
+                    this.pdfTotalPages = 0;
+                    this.paperNotesContent = '';
+                    this.paperHighlights = [];
+                    this.notesModified = false;
 
                     if (this.paperDetail.status === 'summarized') {
                         try {
@@ -1875,6 +2490,11 @@
                         }
                     }
 
+                    // Load notes if available
+                    if (this.paperDetail.pdf_path) {
+                        await this.loadPaperNotes(citekey);
+                    }
+
                     this.showPaperDetail = true;
                 },
 
@@ -1882,6 +2502,13 @@
                     this.showPaperDetail = false;
                     this.paperDetail = null;
                     this.paperSummary = null;
+                    this.detailView = 'summary';
+                    this.pdfDoc = null;
+                    this.pdfCurrentPage = 1;
+                    this.pdfTotalPages = 0;
+                    this.paperNotesContent = '';
+                    this.paperHighlights = [];
+                    this.notesModified = false;
                 },
 
                 async addRelatedPaper(related) {
@@ -1924,6 +2551,365 @@
                     } else if (action === 'summarize') {
                         await this.summarizeSinglePaper(citekey);
                         await this.viewPaperDetail(citekey);
+                    }
+                },
+
+                // PDF Viewer Methods
+
+                get currentPageHighlights() {
+                    return this.paperHighlights.filter(h => h.page === this.pdfCurrentPage);
+                },
+
+                async switchToPdfView() {
+                    this.detailView = 'pdf';
+                    await this.$nextTick();
+                    await this.loadPdf();
+                },
+
+                async loadPdf() {
+                    if (!this.paperDetail?.pdf_path) return;
+
+                    const pdfUrl = `${this.apiBase}/api/papers/${this.paperDetail.citekey}/pdf`;
+
+                    try {
+                        if (typeof pdfjsLib === 'undefined') {
+                            console.error('PDF.js not loaded');
+                            return;
+                        }
+
+                        const loadingTask = pdfjsLib.getDocument(pdfUrl);
+                        this.pdfDoc = await loadingTask.promise;
+                        this.pdfTotalPages = this.pdfDoc.numPages;
+                        this.pdfCurrentPage = 1;
+                        await this.renderPdfPage(1);
+                    } catch (e) {
+                        console.error('Error loading PDF:', e);
+                    }
+                },
+
+                async renderPdfPage(pageNum) {
+                    if (!this.pdfDoc) return;
+
+                    const page = await this.pdfDoc.getPage(pageNum);
+                    const scale = 1.5;
+                    const viewport = page.getViewport({ scale });
+
+                    const canvas = document.getElementById('pdf-canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    await page.render({
+                        canvasContext: ctx,
+                        viewport: viewport
+                    }).promise;
+
+                    // Render text layer for selection
+                    const textContent = await page.getTextContent();
+                    const textLayer = document.getElementById('pdf-text-layer');
+                    textLayer.innerHTML = '';
+                    textLayer.style.width = `${viewport.width}px`;
+                    textLayer.style.height = `${viewport.height}px`;
+
+                    // Render text spans using viewport transform
+                    textContent.items.forEach((item) => {
+                        const span = document.createElement('span');
+
+                        // Calculate position from transform matrix
+                        const tx = item.transform;
+                        const x = tx[4] * scale;
+                        const y = viewport.height - (tx[5] * scale);
+
+                        span.textContent = item.str;
+                        span.style.left = `${x}px`;
+                        span.style.top = `${y - (item.height * scale)}px`;
+                        span.style.fontSize = `${item.height * scale}px`;
+                        span.style.fontFamily = item.fontName || 'sans-serif';
+
+                        textLayer.appendChild(span);
+                    });
+                },
+
+                async pdfPrevPage() {
+                    if (this.pdfCurrentPage > 1) {
+                        this.pdfCurrentPage--;
+                        await this.renderPdfPage(this.pdfCurrentPage);
+                    }
+                },
+
+                async pdfNextPage() {
+                    if (this.pdfCurrentPage < this.pdfTotalPages) {
+                        this.pdfCurrentPage++;
+                        await this.renderPdfPage(this.pdfCurrentPage);
+                    }
+                },
+
+                // Notes Methods
+
+                async loadPaperNotes(citekey) {
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/papers/${citekey}/notes`);
+                        const data = await res.json();
+                        this.paperNotesContent = data.content || '';
+                        this.paperHighlights = data.highlights || [];
+                    } catch (e) {
+                        console.log('Could not load notes:', e);
+                    }
+                },
+
+                async saveNotes() {
+                    if (!this.paperDetail) return;
+
+                    this.savingNotes = true;
+                    try {
+                        await fetch(`${this.apiBase}/api/papers/${this.paperDetail.citekey}/notes`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ content: this.paperNotesContent })
+                        });
+                        this.notesModified = false;
+                    } catch (e) {
+                        console.error('Error saving notes:', e);
+                    } finally {
+                        this.savingNotes = false;
+                    }
+                },
+
+                async createHighlightFromSelection() {
+                    const selection = window.getSelection();
+                    if (!selection || selection.isCollapsed) {
+                        alert('Please select text in the PDF first.');
+                        return;
+                    }
+
+                    const selectedText = selection.toString();
+                    if (!selectedText.trim()) {
+                        alert('Please select text in the PDF first.');
+                        return;
+                    }
+
+                    // Get selection bounds relative to canvas
+                    const canvas = document.getElementById('pdf-canvas');
+                    const canvasRect = canvas.getBoundingClientRect();
+                    const range = selection.getRangeAt(0);
+                    const rects = range.getClientRects();
+
+                    const normalizedRects = [];
+                    for (let i = 0; i < rects.length; i++) {
+                        const rect = rects[i];
+                        normalizedRects.push({
+                            x: (rect.left - canvasRect.left) / canvasRect.width,
+                            y: (rect.top - canvasRect.top) / canvasRect.height,
+                            width: rect.width / canvasRect.width,
+                            height: rect.height / canvasRect.height
+                        });
+                    }
+
+                    // Create highlight via API
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/papers/${this.paperDetail.citekey}/highlights`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                page: this.pdfCurrentPage,
+                                rects: normalizedRects,
+                                text: selectedText,
+                                color: this.highlightColor
+                            })
+                        });
+                        const data = await res.json();
+
+                        // Add to local state
+                        this.paperHighlights.push({
+                            id: data.highlight_id,
+                            page: this.pdfCurrentPage,
+                            rects: normalizedRects,
+                            text: selectedText,
+                            color: this.highlightColor
+                        });
+
+                        // Clear selection
+                        selection.removeAllRanges();
+                    } catch (e) {
+                        console.error('Error creating highlight:', e);
+                    }
+                },
+
+                async deleteHighlight(highlightId) {
+                    if (!confirm('Delete this highlight?')) return;
+
+                    try {
+                        await fetch(`${this.apiBase}/api/papers/${this.paperDetail.citekey}/highlights/${highlightId}`, {
+                            method: 'DELETE'
+                        });
+                        this.paperHighlights = this.paperHighlights.filter(h => h.id !== highlightId);
+                    } catch (e) {
+                        console.error('Error deleting highlight:', e);
+                    }
+                },
+
+                showHighlightNote(highlight) {
+                    if (highlight.note) {
+                        alert(highlight.note);
+                    }
+                },
+
+                renderNotesPreview(content) {
+                    if (!content) return '<p style="color: var(--text-muted);">Preview will appear here...</p>';
+
+                    // First render markdown
+                    let html = marked.parse(content);
+
+                    // Then render KaTeX (if available)
+                    if (typeof renderMathInElement !== 'undefined') {
+                        const temp = document.createElement('div');
+                        temp.innerHTML = html;
+                        renderMathInElement(temp, {
+                            delimiters: [
+                                { left: '$$', right: '$$', display: true },
+                                { left: '$', right: '$', display: false }
+                            ],
+                            throwOnError: false
+                        });
+                        return temp.innerHTML;
+                    }
+
+                    return html;
+                },
+
+                // Network Graph Methods
+
+                async switchToNetworkView() {
+                    this.currentView = 'network';
+                    await this.$nextTick();
+                    await this.loadNetworkGraph();
+                },
+
+                async loadNetworkGraph() {
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/graph`);
+                        const data = await res.json();
+                        this.networkNodes = data.nodes;
+                        this.networkEdges = data.edges;
+                        this.initNetworkGraph();
+                    } catch (e) {
+                        console.error('Error loading graph:', e);
+                    }
+                },
+
+                initNetworkGraph() {
+                    const container = document.getElementById('network-graph');
+                    if (!container || typeof vis === 'undefined') {
+                        console.error('Network graph container or vis.js not found');
+                        return;
+                    }
+
+                    // Define status-based colors
+                    const statusColors = {
+                        discovered: '#8B949E',
+                        downloaded: '#2D6A4F',
+                        summarized: '#5B4B8A',
+                    };
+
+                    // Create nodes dataset with colors
+                    const nodes = new vis.DataSet(this.networkNodes.map(n => ({
+                        id: n.id,
+                        label: n.label,
+                        title: `${n.title}\n(${n.year || 'n.d.'})`,
+                        color: {
+                            background: statusColors[n.group] || '#8B949E',
+                            border: statusColors[n.group] || '#8B949E',
+                            highlight: {
+                                background: statusColors[n.group] || '#8B949E',
+                                border: '#22324A'
+                            }
+                        }
+                    })));
+
+                    // Create edges dataset
+                    const edges = new vis.DataSet(this.networkEdges.map(e => ({
+                        from: e.from,
+                        to: e.to,
+                        title: e.title,
+                        smooth: { type: 'continuous' }
+                    })));
+
+                    // Network options
+                    const options = {
+                        nodes: {
+                            font: { size: 12, face: 'Inter, sans-serif' },
+                            borderWidth: 2,
+                            shape: 'dot',
+                            size: 15
+                        },
+                        edges: {
+                            width: 1,
+                            color: { color: '#D4C9B8', highlight: '#22324A' }
+                        },
+                        physics: {
+                            barnesHut: {
+                                gravitationalConstant: -2000,
+                                springLength: 150
+                            }
+                        },
+                        interaction: {
+                            hover: true,
+                            tooltipDelay: 200
+                        }
+                    };
+
+                    // Create network
+                    this.networkGraph = new vis.Network(container, { nodes, edges }, options);
+
+                    // Handle node click -> view paper detail
+                    this.networkGraph.on('click', (params) => {
+                        if (params.nodes.length > 0) {
+                            const citekey = params.nodes[0];
+                            this.viewPaperDetail(citekey);
+                        }
+                    });
+
+                    // Handle double-click -> set as connection source
+                    this.networkGraph.on('doubleClick', (params) => {
+                        if (params.nodes.length > 0) {
+                            this.connectSource = params.nodes[0];
+                        }
+                    });
+                },
+
+                async connectPapers() {
+                    if (!this.connectSource || !this.connectTarget) return;
+
+                    try {
+                        const res = await fetch(`${this.apiBase}/api/graph/connect`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                source: this.connectSource,
+                                target: this.connectTarget,
+                                reason: this.connectReason
+                            })
+                        });
+                        const data = await res.json();
+
+                        if (data.status === 'connected') {
+                            this.statusMessage = 'Papers connected successfully';
+                            this.statusType = 'success';
+                            // Reload the graph
+                            await this.loadNetworkGraph();
+                        } else if (data.status === 'exists') {
+                            this.statusMessage = 'Connection already exists';
+                            this.statusType = 'info';
+                        }
+
+                        // Clear form
+                        this.connectSource = '';
+                        this.connectTarget = '';
+                        this.connectReason = '';
+                    } catch (e) {
+                        this.statusMessage = `Error: ${e.message}`;
+                        this.statusType = 'error';
                     }
                 }
             };

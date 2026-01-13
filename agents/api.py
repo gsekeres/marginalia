@@ -2,22 +2,28 @@
 
 import asyncio
 import os
+import secrets
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 load_dotenv()  # Load .env file
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
-from .models import Paper, PaperStatus, RelatedPaper
+from .models import Paper, PaperStatus, RelatedPaper, PaperNotes, Highlight, PaperConnection
 from .pdf_finder import PDFFinder
 from .summarizer import Summarizer
 from .vault import VaultManager, generate_citekey
+from .auth import (
+    oauth, configure_oauth, get_user_store, create_access_token,
+    get_current_user, require_auth, is_oauth_configured, User
+)
 
 app = FastAPI(
     title="Marginalia",
@@ -34,11 +40,22 @@ app.add_middleware(
         "http://localhost:1313",  # Hugo dev server
         "https://gabesekeres.com",
         "https://www.gabesekeres.com",
+        "https://marginalia.site",
+        "https://www.marginalia.site",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Session middleware for OAuth state
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("SECRET_KEY", secrets.token_hex(32))
+)
+
+# Configure OAuth providers
+configure_oauth()
 
 # Global vault manager
 vault_path = Path(os.getenv("VAULT_PATH", "./vault"))
@@ -87,6 +104,29 @@ class BrowseRequest(BaseModel):
     path: Optional[str] = None
 
 
+class SetupRequest(BaseModel):
+    claude_oauth_key: Optional[str] = None
+    storage_path: str
+
+
+class NotesRequest(BaseModel):
+    content: str
+
+
+class HighlightRequest(BaseModel):
+    page: int
+    rects: list[dict]
+    text: str = ""
+    color: str = "yellow"
+    note: Optional[str] = None
+
+
+class ConnectPapersRequest(BaseModel):
+    source: str  # source citekey
+    target: str  # target citekey
+    reason: str = ""  # why they're related
+
+
 def normalize_title(title: str) -> str:
     """Normalize a title for comparison."""
     import re
@@ -111,9 +151,143 @@ def match_related_papers_to_vault(paper: Paper) -> Paper:
 # Routes
 
 @app.get("/")
-async def root():
-    """Serve the dashboard."""
+async def root(request: Request, user: Optional[User] = Depends(get_current_user)):
+    """Serve landing page or dashboard based on auth status."""
+    app_dir = Path(__file__).parent.parent / "app"
+
+    # If OAuth is not configured, skip auth and show dashboard
+    if not is_oauth_configured():
+        return FileResponse(app_dir / "index.html")
+
+    # If user is authenticated
+    if user:
+        # Check if setup is complete
+        if not user.setup_complete:
+            return FileResponse(app_dir / "setup.html")
+        return FileResponse(app_dir / "index.html")
+
+    # Not authenticated - show landing page
+    return FileResponse(app_dir / "landing.html")
+
+
+@app.get("/setup")
+async def setup_page(user: Optional[User] = Depends(get_current_user)):
+    """Serve setup page."""
+    app_dir = Path(__file__).parent.parent / "app"
+    return FileResponse(app_dir / "setup.html")
+
+
+@app.get("/demo")
+async def demo_page():
+    """Serve dashboard in demo mode (no auth required)."""
     return FileResponse(Path(__file__).parent.parent / "app" / "index.html")
+
+
+# OAuth routes
+
+@app.get("/auth/login/{provider}")
+async def auth_login(provider: str, request: Request):
+    """Initiate OAuth flow."""
+    if provider not in ['google', 'github']:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    if not is_oauth_configured():
+        raise HTTPException(status_code=400, detail="OAuth not configured")
+
+    client = oauth.create_client(provider)
+    if not client:
+        raise HTTPException(status_code=400, detail=f"{provider} OAuth not configured")
+
+    redirect_uri = str(request.url_for('auth_callback', provider=provider))
+    return await client.authorize_redirect(request, redirect_uri)
+
+
+@app.get("/auth/callback/{provider}")
+async def auth_callback(provider: str, request: Request):
+    """Handle OAuth callback."""
+    if provider not in ['google', 'github']:
+        raise HTTPException(status_code=400, detail="Invalid provider")
+
+    client = oauth.create_client(provider)
+    token = await client.authorize_access_token(request)
+
+    if provider == 'google':
+        user_info = token.get('userinfo')
+        if not user_info:
+            user_info = await client.parse_id_token(token)
+        email = user_info['email']
+        name = user_info.get('name')
+        picture = user_info.get('picture')
+        provider_id = user_info['sub']
+    else:  # github
+        resp = await client.get('user', token=token)
+        user_data = resp.json()
+        # Get email separately for GitHub
+        email_resp = await client.get('user/emails', token=token)
+        emails = email_resp.json()
+        primary_email = next((e['email'] for e in emails if e.get('primary')), emails[0]['email'] if emails else None)
+        email = primary_email or f"{user_data['login']}@github.local"
+        name = user_data.get('name') or user_data.get('login')
+        picture = user_data.get('avatar_url')
+        provider_id = str(user_data['id'])
+
+    # Get or create user
+    user_store = get_user_store()
+    user = user_store.get_or_create_user(provider, provider_id, email, name, picture)
+
+    # Create JWT token
+    access_token = create_access_token(user.id)
+
+    # Redirect based on setup status
+    redirect_url = "/setup" if not user.setup_complete else "/"
+
+    response = RedirectResponse(url=redirect_url)
+    response.set_cookie(
+        key="marginalia_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 24 * 60 * 60,  # 1 week
+    )
+    return response
+
+
+@app.get("/auth/logout")
+async def auth_logout():
+    """Clear auth cookie and redirect to landing."""
+    response = RedirectResponse(url="/")
+    response.delete_cookie("marginalia_token")
+    return response
+
+
+@app.get("/api/me")
+async def get_me(user: Optional[User] = Depends(get_current_user)):
+    """Get current user info."""
+    if not user:
+        return {"authenticated": False}
+    return {
+        "authenticated": True,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "picture": user.picture,
+            "setup_complete": user.setup_complete,
+        }
+    }
+
+
+@app.post("/api/setup")
+async def complete_setup(request_data: SetupRequest, user: User = Depends(require_auth)):
+    """Complete user setup."""
+    user.claude_oauth_key = request_data.claude_oauth_key
+    user.storage_path = request_data.storage_path
+    user.setup_complete = True
+
+    user_store = get_user_store()
+    user_store.update_user(user)
+
+    return {"status": "setup_complete"}
 
 
 @app.get("/api/stats")
@@ -401,6 +575,153 @@ async def get_summary(citekey: str):
 
     with open(summary_path, "r") as f:
         return {"content": f.read()}
+
+
+@app.get("/api/papers/{citekey}/notes")
+async def get_notes(citekey: str):
+    """Get notes and highlights for a paper."""
+    paper = vault.get_paper(citekey)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    notes = vault.get_paper_notes(citekey)
+    return notes.model_dump()
+
+
+@app.put("/api/papers/{citekey}/notes")
+async def save_notes(citekey: str, request: NotesRequest):
+    """Save notes content for a paper."""
+    paper = vault.get_paper(citekey)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    notes = vault.get_paper_notes(citekey)
+    notes.content = request.content
+    vault.save_paper_notes(notes)
+
+    # Update paper to reference notes
+    if not paper.notes_path:
+        paper.notes_path = f"papers/{citekey}/notes.json"
+        vault.save_index()
+
+    return {"status": "saved"}
+
+
+@app.post("/api/papers/{citekey}/highlights")
+async def add_highlight(citekey: str, request: HighlightRequest):
+    """Add a highlight to a paper."""
+    paper = vault.get_paper(citekey)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    notes = vault.get_paper_notes(citekey)
+    highlight = Highlight(
+        page=request.page,
+        rects=request.rects,
+        text=request.text,
+        color=request.color,
+        note=request.note,
+    )
+    notes.highlights.append(highlight)
+    vault.save_paper_notes(notes)
+
+    # Update paper to reference notes
+    if not paper.notes_path:
+        paper.notes_path = f"papers/{citekey}/notes.json"
+        vault.save_index()
+
+    return {"status": "added", "highlight_id": highlight.id}
+
+
+@app.delete("/api/papers/{citekey}/highlights/{highlight_id}")
+async def delete_highlight(citekey: str, highlight_id: str):
+    """Remove a highlight from a paper."""
+    paper = vault.get_paper(citekey)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    notes = vault.get_paper_notes(citekey)
+    original_count = len(notes.highlights)
+    notes.highlights = [h for h in notes.highlights if h.id != highlight_id]
+
+    if len(notes.highlights) == original_count:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    vault.save_paper_notes(notes)
+    return {"status": "deleted"}
+
+
+# Graph API endpoints
+
+@app.get("/api/graph")
+async def get_graph():
+    """Get all nodes (papers) and edges (connections) for the network graph."""
+    nodes = []
+    for paper in vault.index.papers.values():
+        nodes.append({
+            "id": paper.citekey,
+            "label": paper.citekey,
+            "title": paper.title,
+            "group": paper.status.value,
+            "year": paper.year,
+        })
+
+    edges = []
+    for conn in vault.index.connections:
+        edges.append({
+            "from": conn.source,
+            "to": conn.target,
+            "title": conn.reason,
+        })
+
+    return {"nodes": nodes, "edges": edges}
+
+
+@app.post("/api/graph/connect")
+async def connect_papers(request: ConnectPapersRequest):
+    """Connect two papers in the graph (bidirectional)."""
+    # Verify both papers exist
+    source_paper = vault.get_paper(request.source)
+    target_paper = vault.get_paper(request.target)
+
+    if not source_paper:
+        raise HTTPException(status_code=404, detail=f"Paper not found: {request.source}")
+    if not target_paper:
+        raise HTTPException(status_code=404, detail=f"Paper not found: {request.target}")
+
+    # Check if connection already exists
+    for conn in vault.index.connections:
+        if (conn.source == request.source and conn.target == request.target) or \
+           (conn.source == request.target and conn.target == request.source):
+            return {"status": "exists", "message": "Connection already exists"}
+
+    # Add the connection
+    connection = PaperConnection(
+        source=request.source,
+        target=request.target,
+        reason=request.reason,
+    )
+    vault.index.connections.append(connection)
+    vault.save_index()
+
+    return {"status": "connected"}
+
+
+@app.delete("/api/graph/connection/{source}/{target}")
+async def delete_connection(source: str, target: str):
+    """Remove a connection between two papers."""
+    original_count = len(vault.index.connections)
+    vault.index.connections = [
+        c for c in vault.index.connections
+        if not ((c.source == source and c.target == target) or
+                (c.source == target and c.target == source))
+    ]
+
+    if len(vault.index.connections) == original_count:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    vault.save_index()
+    return {"status": "deleted"}
 
 
 @app.get("/api/manual-queue")

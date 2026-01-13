@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .bibtex_parser import parse_bibtex_file, export_to_bibtex
-from .models import Paper, PaperStatus, VaultIndex
+from .models import Paper, PaperStatus, VaultIndex, PaperNotes
 
 console = Console()
 
@@ -245,6 +245,25 @@ title: Marginalia Index
         output_path = output_path or (self.vault_path / "references.bib")
         export_to_bibtex(self.index, output_path)
         return output_path
+
+    def get_paper_notes(self, citekey: str) -> PaperNotes:
+        """Get notes and highlights for a paper, creating if needed."""
+        notes_path = self.papers_path / citekey / "notes.json"
+        if notes_path.exists():
+            with open(notes_path, "r") as f:
+                data = json.load(f)
+                return PaperNotes.model_validate(data)
+        # Return empty notes object
+        return PaperNotes(citekey=citekey)
+
+    def save_paper_notes(self, notes: PaperNotes) -> None:
+        """Save notes and highlights for a paper."""
+        paper_dir = self.papers_path / notes.citekey
+        paper_dir.mkdir(parents=True, exist_ok=True)
+        notes_path = paper_dir / "notes.json"
+        notes.last_modified = datetime.now()
+        with open(notes_path, "w") as f:
+            json.dump(notes.model_dump(mode="json"), f, indent=2, default=str)
 
     def print_stats(self) -> None:
         """Print vault statistics."""

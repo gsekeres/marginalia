@@ -1,70 +1,26 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-ENV/
-.eggs/
-*.egg-info/
-*.egg
+# Rust build artifacts
+target/
+**/target/
+marginalia-app/src-tauri/target/
 
-# Node.js / Next.js
+# Node
 node_modules/
-.next/
-out/
-.vercel
+dist/
 
-# Environment
-.env
-.env.local
-.env.*.local
+# OS files
+.DS_Store
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# PDFs (large files - track separately or use git-lfs)
-# Uncomment if you want to exclude PDFs from git:
-# vault/papers/**/*.pdf
 
 # Logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # Build outputs
-dist/
-build/
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# API keys and secrets
-.anthropic_key
-cookies.json
-
-# User data (vault is stored separately)
-vault/
-references.bib
-.marginalia_index.json
-
-# Cache
-.cache/
-.pytest_cache/
-
-# Claude Code local settings
-.claude/
+*.dmg
+*.app

@@ -1,5 +1,6 @@
 """Data models for Marginalia papers and metadata."""
 
+import secrets
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -37,6 +38,25 @@ class RelatedPaper(BaseModel):
     vault_citekey: Optional[str] = None  # Set if paper exists in vault
 
 
+class Highlight(BaseModel):
+    """A highlight annotation on a PDF page."""
+    id: str = Field(default_factory=lambda: secrets.token_hex(8))
+    page: int  # 1-indexed page number
+    rects: list[dict] = Field(default_factory=list)  # [{x, y, width, height}] normalized 0-1
+    text: str = ""  # Selected text
+    color: str = "yellow"  # yellow, green, blue, pink
+    note: Optional[str] = None  # Optional annotation note
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class PaperNotes(BaseModel):
+    """Notes and highlights for a paper."""
+    citekey: str
+    content: str = ""  # Markdown notes with LaTeX support
+    highlights: list[Highlight] = Field(default_factory=list)
+    last_modified: datetime = Field(default_factory=datetime.now)
+
+
 class Paper(BaseModel):
     """A paper in the vault."""
     citekey: str
@@ -57,6 +77,7 @@ class Paper(BaseModel):
     # File paths (relative to vault)
     pdf_path: Optional[str] = None
     summary_path: Optional[str] = None
+    notes_path: Optional[str] = None
 
     # Timestamps
     added_at: datetime = Field(default_factory=datetime.now)
@@ -113,6 +134,7 @@ class Paper(BaseModel):
 class VaultIndex(BaseModel):
     """Index of all papers in the vault."""
     papers: dict[str, Paper] = Field(default_factory=dict)  # citekey -> Paper
+    connections: list["PaperConnection"] = Field(default_factory=list)  # Paper connections for graph
     last_updated: datetime = Field(default_factory=datetime.now)
     source_bib_path: Optional[str] = None  # Path to the original .bib file
 
@@ -139,6 +161,14 @@ class VaultIndex(BaseModel):
             "by_status": status_counts,
             "last_updated": self.last_updated.isoformat(),
         }
+
+
+class PaperConnection(BaseModel):
+    """A connection between two papers in the network graph."""
+    source: str  # citekey
+    target: str  # citekey
+    reason: str = ""  # Why they're related
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 class DownloadResult(BaseModel):

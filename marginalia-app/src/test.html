@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test</title>
+</head>
+<body>
+    <h1 id="status">Loading...</h1>
+    <script>
+        alert('Script works!');
+        document.getElementById('status').textContent = 'Script executed!';
+
+        if (window.__TAURI__) {
+            document.getElementById('status').textContent += ' Tauri available!';
+        }
+    </script>
+</body>
+</html>
