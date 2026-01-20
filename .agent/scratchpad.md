@@ -2,7 +2,7 @@
 
 ## Current Status
 - **Phase**: 1 - Fix Core Import/Download/Summarize Pipeline
-- **Last completed**: Initial exploration
+- **Last completed**: Added retry logic for summarization JSON parse failures
 - **Blockers**: None
 
 ## Key Findings from Exploration
@@ -57,7 +57,11 @@
 - [ ] Show download progress in UI
 
 ### 1.3 Summarization Reliability
-- [ ] Add retry logic (up to 3 attempts) on JSON parse failure
+- [x] Add retry logic (up to 3 attempts) on JSON parse failure
+  - Implemented in `summarizer_service.rs` with `MAX_RETRIES = 3`
+  - Uses `build_retry_prompt()` with increasingly emphatic JSON instructions
+  - Includes error message from previous attempt in retry prompt
+  - Truncates paper text on retries (50k→30k chars) to give model more room
 - [ ] Show partial results on parse failure
 - [ ] Auto-link related papers to vault papers by DOI/title matching
 
