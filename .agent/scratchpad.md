@@ -63,7 +63,11 @@
   - Includes error message from previous attempt in retry prompt
   - Truncates paper text on retries (50k→30k chars) to give model more room
 - [ ] Show partial results on parse failure
-- [ ] Auto-link related papers to vault papers by DOI/title matching
+- [x] Auto-link related papers to vault papers by title/author matching
+  - Implemented in `commands/claude.rs` with `auto_link_related_papers()`
+  - Uses title normalization and first-5-words matching
+  - Falls back to first-author + year matching
+  - Sets `vault_citekey` on matched related papers before storage
 
 ---
 

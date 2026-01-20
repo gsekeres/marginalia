@@ -1,30 +1,17 @@
-use crate::models::{Paper, PaperStatus, VaultIndex, RelatedPaper, Citation};
-use crate::utils::claude::is_claude_available;
-use std::path::PathBuf;
-use std::fs;
-use std::process::Command;
+//! Claude CLI commands
+//!
+//! Commands for checking Claude CLI status and summarizing papers.
+
+use crate::adapters::{ClaudeCliClient, FileSystemAdapter};
+use crate::models::{Paper, PaperStatus, RelatedPaper};
+use crate::services::{SummarizationResult, SummarizerService};
+use crate::storage::PaperRepo;
+use crate::AppState;
 use chrono::Utc;
-
-const INDEX_FILENAME: &str = ".marginalia_index.json";
-
-fn load_index(vault_path: &str) -> Result<VaultIndex, String> {
-    let path = PathBuf::from(vault_path).join(INDEX_FILENAME);
-    if !path.exists() {
-        return Ok(VaultIndex::new());
-    }
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read index: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse index: {}", e))
-}
-
-fn save_index(vault_path: &str, index: &VaultIndex) -> Result<(), String> {
-    let path = PathBuf::from(vault_path).join(INDEX_FILENAME);
-    let content = serde_json::to_string_pretty(index)
-        .map_err(|e| format!("Failed to serialize index: {}", e))?;
-    fs::write(&path, content)
-        .map_err(|e| format!("Failed to write index: {}", e))
-}
+use std::collections::HashMap;
+use std::path::PathBuf;
+use tauri::State;
+use tracing::info;
 
 #[derive(serde::Serialize)]
 pub struct ClaudeStatus {
@@ -35,7 +22,7 @@ pub struct ClaudeStatus {
 
 #[tauri::command]
 pub async fn check_claude_cli() -> Result<ClaudeStatus, String> {
-    let available = is_claude_available();
+    let available = ClaudeCliClient::is_available();
 
     if !available {
         return Ok(ClaudeStatus {
@@ -45,20 +32,8 @@ pub async fn check_claude_cli() -> Result<ClaudeStatus, String> {
         });
     }
 
-    // Get version
-    let version = Command::new("claude")
-        .arg("--version")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-
-    // Check if logged in by trying a simple command
-    let logged_in = Command::new("claude")
-        .args(["--print", "-p", "Say hi"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let version = ClaudeCliClient::get_version();
+    let logged_in = ClaudeCliClient::is_logged_in();
 
     Ok(ClaudeStatus {
         available,
@@ -71,27 +46,44 @@ pub async fn check_claude_cli() -> Result<ClaudeStatus, String> {
 pub struct SummaryResult {
     pub success: bool,
     pub summary_path: Option<String>,
+    pub raw_response_path: Option<String>,
     pub error: Option<String>,
 }
 
 #[tauri::command]
-pub async fn summarize_paper(vault_path: String, citekey: String) -> Result<SummaryResult, String> {
+pub async fn summarize_paper(
+    vault_path: String,
+    citekey: String,
+    state: State<'_, AppState>,
+) -> Result<SummaryResult, String> {
     // Check Claude availability
-    if !is_claude_available() {
+    if !ClaudeCliClient::is_available() {
         return Ok(SummaryResult {
             success: false,
             summary_path: None,
-            error: Some("Claude CLI not installed. Install with: brew install anthropics/tap/claude".to_string()),
+            raw_response_path: None,
+            error: Some(
+                "Claude CLI not installed. Install with: brew install anthropics/tap/claude"
+                    .to_string(),
+            ),
         });
     }
 
-    let index = load_index(&vault_path)?;
-    let paper = index.papers.get(&citekey)
-        .ok_or_else(|| format!("Paper not found: {}", citekey))?
-        .clone();
+    // Get paper from database
+    let paper = {
+        let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        let db = db_guard.as_ref().ok_or("No vault is open")?;
+        let paper_repo = PaperRepo::new(&db.conn);
+        paper_repo
+            .get(&citekey)
+            .map_err(|e| format!("Failed to get paper: {}", e))?
+            .ok_or_else(|| format!("Paper not found: {}", citekey))?
+    };
 
     // Check if PDF exists
-    let pdf_path = paper.pdf_path.as_ref()
+    let pdf_path = paper
+        .pdf_path
+        .as_ref()
         .ok_or("Paper has no PDF downloaded")?;
 
     let full_pdf_path = PathBuf::from(&vault_path).join(pdf_path);
@@ -99,202 +91,179 @@ pub async fn summarize_paper(vault_path: String, citekey: String) -> Result<Summ
         return Err("PDF file not found".to_string());
     }
 
+    // Initialize services
+    let filesystem = FileSystemAdapter::new()?;
+    let summarizer = SummarizerService::with_filesystem(filesystem.clone());
+
     // Extract text from PDF
-    let text = extract_pdf_text(&full_pdf_path)?;
+    let text = filesystem.extract_pdf_text(&full_pdf_path)?;
 
-    // Build summarization prompt
-    let prompt = build_summary_prompt(&paper, &text);
+    // Call summarizer service with JSON output validation
+    let result = summarizer.summarize(&vault_path, &paper, &text).await;
 
-    // Call Claude CLI
-    let output = Command::new("claude")
-        .args(["--print", "-p", &prompt])
-        .output()
-        .map_err(|e| format!("Failed to run Claude CLI: {}", e))?;
+    match result {
+        SummarizationResult::Success {
+            markdown,
+            related_papers,
+        } => {
+            // Save the formatted markdown
+            let summary_path = filesystem.save_summary(&vault_path, &paper, &markdown)?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Ok(SummaryResult {
-            success: false,
-            summary_path: None,
-            error: Some(format!("Claude CLI error: {}", stderr)),
-        });
+            // Update paper in database with auto-linked related papers
+            {
+                let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+                let db = db_guard.as_ref().ok_or("No vault is open")?;
+                let paper_repo = PaperRepo::new(&db.conn);
+
+                // Fetch all vault papers for auto-linking
+                let vault_papers = paper_repo
+                    .get_all()
+                    .map_err(|e| format!("Failed to get vault papers: {}", e))?;
+
+                // Auto-link related papers to vault papers by title/author matching
+                let linked_related_papers = auto_link_related_papers(related_papers, &vault_papers);
+
+                let mut updated_paper = paper.clone();
+                updated_paper.status = PaperStatus::Summarized;
+                updated_paper.summary_path = Some(summary_path.clone());
+                updated_paper.summarized_at = Some(Utc::now());
+                updated_paper.related_papers = linked_related_papers;
+
+                paper_repo
+                    .update(&updated_paper)
+                    .map_err(|e| format!("Failed to update paper: {}", e))?;
+            }
+
+            info!("Successfully summarized paper: {}", citekey);
+
+            Ok(SummaryResult {
+                success: true,
+                summary_path: Some(summary_path),
+                raw_response_path: None,
+                error: None,
+            })
+        }
+        SummarizationResult::ParseFailure {
+            raw_response_path,
+            error,
+        } => {
+            info!(
+                "Summarization parse failed for {}, raw saved to {}",
+                citekey, raw_response_path
+            );
+
+            Ok(SummaryResult {
+                success: false,
+                summary_path: None,
+                raw_response_path: Some(raw_response_path),
+                error: Some(error),
+            })
+        }
+        SummarizationResult::CliError(error) => {
+            info!("Claude CLI error for {}: {}", citekey, error);
+
+            Ok(SummaryResult {
+                success: false,
+                summary_path: None,
+                raw_response_path: None,
+                error: Some(error),
+            })
+        }
     }
-
-    let response = String::from_utf8_lossy(&output.stdout).to_string();
-
-    // Parse response and save summary
-    let summary_content = format_summary(&paper, &response);
-
-    let paper_dir = PathBuf::from(&vault_path).join("papers").join(&citekey);
-    fs::create_dir_all(&paper_dir)
-        .map_err(|e| format!("Failed to create directory: {}", e))?;
-
-    let summary_path = paper_dir.join("summary.md");
-    fs::write(&summary_path, &summary_content)
-        .map_err(|e| format!("Failed to write summary: {}", e))?;
-
-    // Update paper status
-    let mut index = load_index(&vault_path)?;
-    if let Some(p) = index.papers.get_mut(&citekey) {
-        p.status = PaperStatus::Summarized;
-        p.summary_path = Some(format!("papers/{}/summary.md", citekey));
-        p.summarized_at = Some(Utc::now());
-
-        // Extract related papers from response (basic parsing)
-        p.related_papers = extract_related_papers(&response);
-    }
-    save_index(&vault_path, &index)?;
-
-    Ok(SummaryResult {
-        success: true,
-        summary_path: Some(format!("papers/{}/summary.md", citekey)),
-        error: None,
-    })
 }
 
-fn extract_pdf_text(pdf_path: &PathBuf) -> Result<String, String> {
-    // Use pdf-extract crate
-    let text = pdf_extract::extract_text(pdf_path)
-        .map_err(|e| format!("Failed to extract PDF text: {}", e))?;
+/// Auto-link related papers to papers already in the vault by title/author matching
+fn auto_link_related_papers(
+    related_papers: Vec<RelatedPaper>,
+    vault_papers: &HashMap<String, Paper>,
+) -> Vec<RelatedPaper> {
+    related_papers
+        .into_iter()
+        .map(|mut related| {
+            // Try to find a matching paper in the vault
+            if let Some(matched_citekey) = find_vault_match(&related, vault_papers) {
+                info!(
+                    "Auto-linked related paper '{}' to vault paper '{}'",
+                    related.title, matched_citekey
+                );
+                related.vault_citekey = Some(matched_citekey);
+            }
+            related
+        })
+        .collect()
+}
 
-    // Clean up text
-    let cleaned = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
+/// Find a vault paper that matches the related paper by title or author+year
+fn find_vault_match(related: &RelatedPaper, vault_papers: &HashMap<String, Paper>) -> Option<String> {
+    let related_title_normalized = normalize_title(&related.title);
+    let related_first_author = related
+        .authors
+        .first()
+        .map(|a| normalize_author(a))
+        .unwrap_or_default();
+
+    for (citekey, paper) in vault_papers {
+        // Check by normalized title
+        let paper_title_normalized = normalize_title(&paper.title);
+        if !related_title_normalized.is_empty()
+            && titles_match(&related_title_normalized, &paper_title_normalized)
+        {
+            return Some(citekey.clone());
+        }
+
+        // Check by first author + year
+        if let Some(paper_first_author) = paper.authors.first() {
+            let paper_author_normalized = normalize_author(paper_first_author);
+            if related.year == paper.year
+                && !related_first_author.is_empty()
+                && related_first_author == paper_author_normalized
+            {
+                return Some(citekey.clone());
+            }
+        }
+    }
+
+    None
+}
+
+fn normalize_title(title: &str) -> String {
+    title
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
         .collect::<Vec<_>>()
-        .join("\n");
+        .join(" ")
+}
 
-    // Truncate if too long (Claude has context limits)
-    let max_chars = 100_000;
-    if cleaned.len() > max_chars {
-        Ok(cleaned[..max_chars].to_string())
+fn normalize_author(author: &str) -> String {
+    // Extract last name, handling "Firstname Lastname" and "Lastname, Firstname"
+    let name = if author.contains(',') {
+        author.split(',').next().unwrap_or(author).trim()
     } else {
-        Ok(cleaned)
+        author.split_whitespace().last().unwrap_or(author)
+    };
+    name.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
+fn titles_match(t1: &str, t2: &str) -> bool {
+    if t1 == t2 {
+        return true;
     }
-}
 
-fn build_summary_prompt(paper: &Paper, text: &str) -> String {
-    format!(
-        r#"You are an academic research assistant. Summarize this paper in a structured format.
+    // Check if first 5 significant words match (for abbreviated titles)
+    if t1.len() > 10 && t2.len() > 10 {
+        let words1: Vec<_> = t1.split_whitespace().take(5).collect();
+        let words2: Vec<_> = t2.split_whitespace().take(5).collect();
 
-Paper: "{}" by {} ({})
-
-Provide your response in this exact format:
-
-## Summary
-[1-2 paragraph overview of the paper]
-
-## Key Contributions
-- [Bullet point 1]
-- [Bullet point 2]
-- [etc.]
-
-## Methodology
-[Brief description of methods used]
-
-## Main Results
-- [Key finding 1]
-- [Key finding 2]
-- [etc.]
-
-## Related Work
-For each related paper mentioned, use this format:
-- Title: [paper title]
-  Authors: [author names]
-  Year: [year]
-  Why Related: [brief explanation]
-
----
-
-Paper text:
-{}
-"#,
-        paper.title,
-        paper.authors.join(", "),
-        paper.year.map(|y| y.to_string()).unwrap_or_else(|| "n.d.".to_string()),
-        text
-    )
-}
-
-fn format_summary(paper: &Paper, response: &str) -> String {
-    format!(
-        r#"---
-title: "{}"
-authors: {:?}
-year: {}
-journal: "{}"
-citekey: "{}"
-doi: "{}"
-status: "summarized"
----
-
-{}
-"#,
-        paper.title,
-        paper.authors,
-        paper.year.unwrap_or(0),
-        paper.journal.as_deref().unwrap_or(""),
-        paper.citekey,
-        paper.doi.as_deref().unwrap_or(""),
-        response.trim()
-    )
-}
-
-fn extract_related_papers(response: &str) -> Vec<RelatedPaper> {
-    let mut related = Vec::new();
-
-    // Find Related Work section
-    if let Some(start) = response.find("## Related Work") {
-        let section = &response[start..];
-        // Stop at next section or end
-        let end = section[15..].find("\n## ").map(|i| i + 15).unwrap_or(section.len());
-        let section = &section[..end];
-
-        let mut current: Option<RelatedPaper> = None;
-
-        for line in section.lines() {
-            let trimmed = line.trim();
-
-            if trimmed.starts_with("- Title:") {
-                // Save previous paper if exists
-                if let Some(paper) = current.take() {
-                    if !paper.title.is_empty() {
-                        related.push(paper);
-                    }
-                }
-                // Start new paper
-                current = Some(RelatedPaper {
-                    title: trimmed.trim_start_matches("- Title:").trim().to_string(),
-                    authors: Vec::new(),
-                    year: None,
-                    why_related: String::new(),
-                    vault_citekey: None,
-                });
-            } else if let Some(ref mut paper) = current {
-                if trimmed.starts_with("Authors:") {
-                    let authors_str = trimmed.trim_start_matches("Authors:").trim();
-                    paper.authors = authors_str
-                        .split(" and ")
-                        .flat_map(|s| s.split(", "))
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                } else if trimmed.starts_with("Year:") {
-                    let year_str = trimmed.trim_start_matches("Year:").trim();
-                    paper.year = year_str.parse().ok();
-                } else if trimmed.starts_with("Why Related:") {
-                    paper.why_related = trimmed.trim_start_matches("Why Related:").trim().to_string();
-                }
-            }
-        }
-
-        // Don't forget the last paper
-        if let Some(paper) = current {
-            if !paper.title.is_empty() {
-                related.push(paper);
-            }
+        if words1.len() >= 3 && words1 == words2 {
+            return true;
         }
     }
 
-    related
+    false
 }
