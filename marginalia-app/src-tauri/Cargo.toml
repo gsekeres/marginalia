@@ -50,6 +50,17 @@ dirs = "6"
 # URL encoding
 urlencoding = "2"
 
+# Lazy static initialization
+once_cell = "1"
+
+# SQLite database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

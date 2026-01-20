@@ -49,11 +49,11 @@
 - [x] Replace `.unwrap()` calls with proper error handling (using .ok() + map)
 
 ### 1.2 PDF Download Robustness
-- [ ] Add exponential backoff in adapters
-- [ ] Implement rate limiting for Unpaywall (100k/day) and Semantic Scholar (100/5min)
-- [ ] Validate PDFs by magic bytes (`%PDF-`)
-- [ ] Handle publisher redirects to login pages
-- [ ] Add arXiv adapter
+- [x] Add exponential backoff in adapters (utils/http.rs with_retry())
+- [x] Implement rate limiting for Unpaywall (100k/day) and Semantic Scholar (100/5min) (utils/http.rs RateLimiter)
+- [x] Validate PDFs by magic bytes (`%PDF-`) (utils/http.rs is_valid_pdf())
+- [x] Handle publisher redirects to login pages (utils/http.rs is_likely_login_page())
+- [x] Add arXiv adapter (adapters/arxiv.rs)
 - [ ] Show download progress in UI
 
 ### 1.3 Summarization Reliability
