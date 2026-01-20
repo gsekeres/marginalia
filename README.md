@@ -1,95 +1,108 @@
 # Marginalia
 
-An agent-based academic literature management platform that works with your Claude Code subscription.
+A native macOS academic literature management app that uses AI to organize your research library.
 
 ## What It Does
 
-Marginalia uses AI agents to automate the tedious parts of building a research library:
+Marginalia automates the tedious parts of building a research library:
 
-1. **Find PDFs** - Searches Unpaywall, Semantic Scholar, NBER, and other open-access sources
+1. **Find PDFs** - Searches Unpaywall, Semantic Scholar, and other open-access sources
 2. **Summarize Papers** - Extracts text and generates structured summaries using Claude
 3. **Build Citation Graphs** - Links papers together through their citations
-4. **Create an Obsidian Vault** - All summaries are Obsidian-compatible markdown with wikilinks
+4. **Obsidian Integration** - All summaries are Obsidian-compatible markdown with wikilinks
 
 **Key Feature**: Uses your existing Claude Pro/Max subscription via Claude Code CLI - no separate API credits needed.
 
-## Quick Start (Local Development)
+## Installation
 
-### 1. Install Dependencies
+### 1. Download
 
-```bash
-cd Marginalia
-pip install -e .
-```
+Download the latest release from the [Releases](https://github.com/yourusername/marginalia/releases) page.
 
 ### 2. Set Up Claude Code CLI
 
 Summarization requires Claude Code CLI with your subscription:
 
 ```bash
-# Install Claude Code CLI (requires Node.js 18+)
-npm install -g @anthropic-ai/claude-code
+# Install Claude Code CLI
+brew install anthropics/tap/claude
 
 # Authenticate (opens browser)
-claude setup-token
-
-# Add token to .env
-echo 'CLAUDE_CODE_OAUTH_TOKEN=<your-token>' >> .env
+claude login
 ```
 
-**Important**: Do NOT set `ANTHROPIC_API_KEY` in `.env` - the CLI will prefer it over OAuth and fail without API credits.
+### 3. Run
 
-### 3. Run Locally
-
-```bash
-python -m agents.api
-# Open http://localhost:8000
-```
+Open Marginalia.app and select or create a vault folder.
 
 ## Usage
 
-1. Import your BibTeX bibliography
-2. Mark papers you want to read
-3. Click "Find PDFs" - Marginalia searches open-access sources
-4. Papers that can't be found go to a manual queue with search links
-5. Click "Summarize" to generate structured summaries
-6. Open the vault folder in Obsidian for linked notes
+1. **Import** - Drop a BibTeX file or paste citation keys
+2. **Find PDFs** - Click "Find PDFs" to search open-access sources
+3. **Summarize** - Click "Summarize" to generate structured summaries
+4. **Explore** - Use the graph view to explore citation relationships
+5. **Take Notes** - Add highlights and annotations to PDFs
+6. **Export** - Open the vault folder in Obsidian for linked notes
 
-## CLI Commands
+## Development
+
+### Prerequisites
+
+- Rust (latest stable)
+- Node.js 18+
+- Claude Code CLI (for summarization)
+
+### Build from Source
 
 ```bash
-python -m agents.cli status      # Show vault statistics
-python -m agents.cli import X.bib # Import papers from BibTeX
-python -m agents.cli want --all   # Mark papers for download
-python -m agents.cli find         # Find and download PDFs
-python -m agents.cli summarize    # Generate summaries
-python -m agents.cli manual       # Show manual download queue
+cd marginalia-app
+
+# Install frontend dependencies
+npm install
+
+# Run development server
+npm run tauri dev
+
+# Build for production
+npm run tauri build
 ```
 
-## Deployment
+### Project Structure
 
-See [DEPLOY.md](DEPLOY.md) for deployment instructions.
-
-**Current Architecture**:
-- Frontend: Static HTML hosted on your website
-- Backend: FastAPI on Render (or any Python host)
-- Storage: Persistent disk for vault data
+```
+marginalia-app/
+├── src/                    # TypeScript frontend
+│   ├── api/               # Tauri command wrappers
+│   ├── state/             # State management
+│   ├── views/             # View helpers
+│   ├── components/        # UI components
+│   └── types.ts           # Type definitions
+├── src-tauri/             # Rust backend
+│   └── src/
+│       ├── adapters/      # External API clients
+│       ├── commands/      # Tauri commands
+│       ├── models/        # Data structures
+│       ├── services/      # Business logic
+│       └── storage/       # SQLite database
+└── package.json
+```
 
 ## How PDF Finding Works
 
-The PDF Finder agent searches these sources in order:
+The PDF Finder searches these sources in order:
 1. **Unpaywall** - Open-access versions via DOI
 2. **Semantic Scholar** - Academic search with open-access PDFs
-3. **NBER** - National Bureau of Economic Research working papers
-4. **Manual Queue** - If not found, generates search links
+3. **Claude** - AI-powered web search (if available)
+4. **Manual Queue** - Generates search links if not found
 
-Expected success rate: ~70-85% for economics papers.
+Expected success rate: ~70-85% for papers with DOIs.
 
 ## How Summarization Works
 
-1. Extracts text from PDF using `pdfplumber`
-2. Sends to Claude Code CLI with JSON output format
-3. Parses response into structured markdown:
+1. Extracts text from PDF
+2. Sends to Claude with structured JSON output format
+3. Validates and parses response
+4. Generates markdown summary with:
    - Overview paragraph
    - Key contributions
    - Methodology
@@ -98,12 +111,19 @@ Expected success rate: ~70-85% for economics papers.
 
 ## Configuration
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token from `claude setup-token` | Yes |
-| `UNPAYWALL_EMAIL` | Email for better Unpaywall rate limits | No |
-| `SEMANTIC_SCHOLAR_API_KEY` | For higher rate limits | No |
-| `VAULT_PATH` | Path to vault directory (default: `./vault`) | No |
+Configuration is managed through the Settings panel in the app:
+- Default vault location
+- Claude model preferences
+- Auto-find/summarize options
+
+## Logs & Diagnostics
+
+Logs are stored in `~/Library/Application Support/com.marginalia.app/logs/`.
+
+Access diagnostics via Settings → Diagnostics to check:
+- Database status
+- Claude CLI availability
+- Network connectivity
 
 ## License
 

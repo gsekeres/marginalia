@@ -1,0 +1,20 @@
+# Ralph Orchestrator configuration for Marginalia
+
+event_loop:
+  completion_promise: "LOOP_COMPLETE"
+  max_iterations: 100
+  max_runtime_seconds: 14400
+  idle_timeout_secs: 1800
+
+cli:
+  backend: "claude"
+  prompt_mode: "arg"
+
+core:
+  scratchpad: ".agent/scratchpad.md"
+  specs_dir: "./specs/"
+  guardrails:
+    - "Run `npm run typecheck` in marginalia-app/ before completing"
+    - "Run `cargo check` in marginalia-app/src-tauri/ before completing"
+    - "Don't modify the database schema without updating migrations"
+    - "Keep Rust backend and TypeScript types in sync"

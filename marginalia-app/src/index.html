@@ -12,7 +12,8 @@
 
     <!-- Tailwind (for utilities only) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Alpine loaded at end of body -->
+    <!-- Main application module -->
+    <script type="module" src="/main.ts"></script>
     <!-- Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
@@ -1515,6 +1516,48 @@
             border-color: var(--accent);
         }
 
+        .layout-toggle {
+            display: flex;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .layout-toggle button {
+            padding: var(--space-2) var(--space-3);
+            background: transparent;
+            border: none;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .layout-toggle button:hover {
+            background: var(--surface);
+        }
+
+        .layout-toggle button.active {
+            background: var(--accent);
+            color: white;
+        }
+
+        .tree-focus-select {
+            padding: var(--space-2) var(--space-3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            min-width: 200px;
+            background: white;
+        }
+
+        .tree-focus-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
         .graph-canvas {
             flex: 1;
             min-height: 500px;
@@ -1605,6 +1648,38 @@
                 </div>
             </div>
 
+            <!-- Projects Section -->
+            <div class="sidebar-section" style="flex: 1; overflow-y: auto;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
+                    <h2 class="h2">Projects</h2>
+                    <button class="btn-icon" style="width: 24px; height: 24px;" @click="showProjectModal = true" title="New Project">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 5v14M5 12h14"/>
+                        </svg>
+                    </button>
+                </div>
+                <div style="font-size: 0.8125rem;">
+                    <!-- All Papers option -->
+                    <button class="nav-item" style="padding: 6px 8px; font-size: 0.8125rem;"
+                            :class="{ active: !selectedProjectId }"
+                            @click="selectedProjectId = null; loadPapers()">
+                        <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--text-subtle);"></span>
+                        <span>All Papers</span>
+                        <span class="nav-count" x-text="stats.total || 0"></span>
+                    </button>
+                    <!-- Project list -->
+                    <template x-for="project in projects" :key="project.id">
+                        <button class="nav-item" style="padding: 6px 8px; font-size: 0.8125rem;"
+                                :class="{ active: selectedProjectId === project.id }"
+                                @click="selectProject(project.id)">
+                            <span style="width: 8px; height: 8px; border-radius: 2px;" :style="'background: ' + project.color"></span>
+                            <span x-text="project.name" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+                            <span class="nav-count" x-text="project.paper_count"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+
             <div class="sidebar-footer">
                 <button class="nav-item" @click="importMessage = null; showImportModal = true">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -1667,6 +1742,23 @@
 
             <!-- Content -->
             <div class="content">
+                <!-- PDF Search Progress -->
+                <template x-if="pdfSearchProgress && loadingPaper">
+                    <div class="alert alert-info">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="font-weight: 600;">
+                                Searching for PDF
+                                <span style="font-weight: 400; color: var(--text-muted);" x-text="pdfSearchProgress.current_source ? ' (' + pdfSearchProgress.current_source + ')' : ''"></span>
+                            </div>
+                            <span style="font-size: 0.875rem; color: var(--text-muted);" x-text="pdfSearchProgress.progress + '%'"></span>
+                        </div>
+                        <div style="background: var(--border); border-radius: 4px; height: 6px; overflow: hidden;">
+                            <div style="background: var(--status-wanted); height: 100%; transition: width 0.3s ease;" :style="'width: ' + pdfSearchProgress.progress + '%'"></div>
+                        </div>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 6px;" x-text="pdfSearchProgress.message"></div>
+                    </div>
+                </template>
+
                 <!-- Status Message -->
                 <template x-if="statusMessage">
                     <div class="alert" :class="{
@@ -1687,8 +1779,15 @@
                                         </template>
                                     </div>
                                 </template>
+                                <template x-if="lastSummarizationError && lastSummarizationError.raw_response_path">
+                                    <div style="margin-top: 8px;">
+                                        <button class="btn-secondary" style="font-size: 0.75rem; padding: 4px 8px;" @click="viewRawResponse(lastSummarizationError.citekey)">
+                                            View Raw Response
+                                        </button>
+                                    </div>
+                                </template>
                             </div>
-                            <button @click="statusMessage = null; statusLinks = null" style="background: none; border: none; cursor: pointer; font-size: 1.25rem; color: inherit; opacity: 0.6;">&times;</button>
+                            <button @click="statusMessage = null; statusLinks = null; lastSummarizationError = null" style="background: none; border: none; cursor: pointer; font-size: 1.25rem; color: inherit; opacity: 0.6;">&times;</button>
                         </div>
                     </div>
                 </template>
@@ -1807,6 +1906,22 @@
                     <div class="graph-container">
                         <div class="graph-toolbar">
                             <input type="text" placeholder="Search papers..." x-model="searchQuery" @keyup.enter="searchPapers()">
+                            <div class="layout-toggle">
+                                <button :class="{ active: networkLayoutMode === 'force' }" @click="setNetworkLayout('force')">
+                                    Force
+                                </button>
+                                <button :class="{ active: networkLayoutMode === 'tree' }" @click="setNetworkLayout('tree')">
+                                    Tree
+                                </button>
+                            </div>
+                            <template x-if="networkLayoutMode === 'tree'">
+                                <select class="tree-focus-select" x-model="networkFocusPaper" @change="initNetworkGraph()">
+                                    <option value="">Select root paper...</option>
+                                    <template x-for="node in networkNodes" :key="node.id">
+                                        <option :value="node.id" x-text="node.label"></option>
+                                    </template>
+                                </select>
+                            </template>
                         </div>
 
                         <div id="network-graph" class="graph-canvas"></div>
@@ -2097,6 +2212,40 @@
         </div>
     </div>
 
+    <!-- New Project Modal -->
+    <div class="modal-overlay" x-show="showProjectModal" x-cloak @click.self="showProjectModal = false">
+        <div class="modal" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3 class="h3">New Project</h3>
+                <button @click="showProjectModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: var(--space-4);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Project Name</label>
+                    <input type="text" x-model="newProjectName"
+                           placeholder="e.g., Literature Review"
+                           class="search-input"
+                           @keyup.enter="createProject()">
+                </div>
+                <div style="margin-bottom: var(--space-4);">
+                    <label class="h2" style="display: block; margin-bottom: var(--space-2);">Color</label>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <template x-for="color in ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#64748b']">
+                            <button @click="newProjectColor = color"
+                                    style="width: 28px; height: 28px; border-radius: 4px; border: 2px solid transparent; cursor: pointer;"
+                                    :style="'background: ' + color + '; border-color: ' + (newProjectColor === color ? 'var(--text)' : 'transparent')">
+                            </button>
+                        </template>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                    <button class="btn-secondary" @click="showProjectModal = false">Cancel</button>
+                    <button class="btn-primary" @click="createProject()" :disabled="!newProjectName.trim()">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Sync Modal -->
     <div class="modal-overlay" x-show="showSyncModal" x-cloak @click.self="showSyncModal = false">
         <div class="modal">
@@ -2273,6 +2422,29 @@
         </div>
     </div>
 
+    <!-- Raw Response Modal (for summarization parse failures) -->
+    <div class="modal-overlay" x-show="showRawResponseModal" x-cloak @click.self="showRawResponseModal = false">
+        <div class="modal" style="max-width: 800px; max-height: 80vh;">
+            <div class="modal-header">
+                <h3 class="h3">Raw LLM Response</h3>
+                <button @click="showRawResponseModal = false" style="background: none; border: none; cursor: pointer; font-size: 1.25rem;">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: var(--space-4);">
+                <div class="alert alert-info" style="margin: 0;">
+                    <strong>Summarization failed for <span x-text="rawResponseCitekey"></span></strong><br>
+                    The LLM output couldn't be parsed as valid JSON. Review the raw response below to see what went wrong.
+                </div>
+                <div style="flex: 1; overflow: auto; max-height: 50vh;">
+                    <pre style="background: var(--bg-secondary); padding: var(--space-4); border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.75rem; font-family: monospace; margin: 0;" x-text="rawResponseContent"></pre>
+                </div>
+                <div style="display: flex; gap: var(--space-3); justify-content: flex-end;">
+                    <button class="btn-secondary" @click="navigator.clipboard.writeText(rawResponseContent); showStatus('Copied to clipboard', 'success')">Copy</button>
+                    <button class="btn-secondary" @click="showRawResponseModal = false">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>window.TEST1 = true; console.log('TEST1 script ran');</script>
 
     <script>
@@ -2348,6 +2520,16 @@
                 browseDirectories: [],
                 browseBibFiles: [],
 
+                // Raw response state (for summarization parse failures)
+                showRawResponseModal: false,
+                rawResponseContent: null,
+                rawResponseCitekey: null,
+                lastSummarizationError: null,  // { citekey, error, raw_response_path }
+
+                // PDF search progress state
+                pdfSearchProgress: null,  // { citekey, progress, current_source, message }
+                pdfSearchUnlisten: null,  // Event listener cleanup function
+
                 // Auth state
                 currentUser: null,
 
@@ -2378,6 +2560,16 @@
                 connectSource: '',
                 connectTarget: '',
                 connectReason: '',
+                networkLayoutMode: 'force',  // 'force' or 'tree'
+                networkFocusPaper: null,     // citekey of paper to focus in tree view
+
+                // Projects state
+                projects: [],
+                selectedProjectId: null,
+                showProjectModal: false,
+                newProjectName: '',
+                newProjectColor: '#6366f1',
+                editingProject: null,
 
                 get currentViewLabel() {
                     return this.currentView === 'network' ? 'Network Graph' : 'Library';
@@ -2515,6 +2707,8 @@
                         try {
                             await this.checkClaudeStatus();
                             await this.loadRecentVaults();
+                            // Subscribe to PDF search progress events
+                            await this.subscribeToPdfProgress();
                             console.log('Recent vaults:', this.recentVaults);
                             if (this.recentVaults.length === 0) {
                                 console.log('No recent vaults, showing modal');
@@ -2534,6 +2728,19 @@
                         await this.refreshData();
                         await this.loadConfig();
                         this.startJobPolling();
+                    }
+                },
+
+                async subscribeToPdfProgress() {
+                    if (!isTauri || !listen) return;
+                    try {
+                        this.pdfSearchUnlisten = await listen('pdf:search:progress', (event) => {
+                            console.log('PDF search progress:', event.payload);
+                            this.pdfSearchProgress = event.payload;
+                        });
+                        console.log('Subscribed to PDF search progress events');
+                    } catch (e) {
+                        console.log('Failed to subscribe to PDF progress:', e);
                     }
                 },
 
@@ -2654,6 +2861,18 @@
                     }
                 },
 
+                async viewRawResponse(citekey) {
+                    if (!isTauri || !this.vaultPath) return;
+                    try {
+                        const content = await invoke('read_raw_response', { vaultPath: this.vaultPath, citekey });
+                        this.rawResponseContent = content;
+                        this.rawResponseCitekey = citekey;
+                        this.showRawResponseModal = true;
+                    } catch (e) {
+                        this.showStatus('Failed to load raw response: ' + e, 'error');
+                    }
+                },
+
                 async checkAuth() {
                     // Legacy web mode only
                     if (isTauri) return;
@@ -2746,6 +2965,7 @@
                 async refreshData() {
                     await this.refreshStats();
                     await this.loadPapers();
+                    await this.loadProjects();
                 },
 
                 async refreshStats() {
@@ -2792,6 +3012,107 @@
                     this.loadPapers();
                 },
 
+                // Project methods
+                async loadProjects() {
+                    if (!isTauri) return;
+                    try {
+                        this.projects = await invoke('list_projects');
+                    } catch (e) {
+                        console.error('Failed to load projects:', e);
+                        this.projects = [];
+                    }
+                },
+
+                async createProject() {
+                    if (!this.newProjectName.trim()) return;
+                    try {
+                        const project = await invoke('create_project', {
+                            request: {
+                                name: this.newProjectName.trim(),
+                                color: this.newProjectColor
+                            }
+                        });
+                        this.projects.push(project);
+                        this.projects.sort((a, b) => a.name.localeCompare(b.name));
+                        this.newProjectName = '';
+                        this.showProjectModal = false;
+                        this.showStatus('Created project: ' + project.name, 'success');
+                    } catch (e) {
+                        this.showStatus('Failed to create project: ' + e, 'error');
+                    }
+                },
+
+                async deleteProject(id) {
+                    if (!confirm('Delete this project? Papers will not be deleted.')) return;
+                    try {
+                        await invoke('delete_project', { id });
+                        this.projects = this.projects.filter(p => p.id !== id);
+                        if (this.selectedProjectId === id) {
+                            this.selectedProjectId = null;
+                            await this.loadPapers();
+                        }
+                        this.showStatus('Project deleted', 'success');
+                    } catch (e) {
+                        this.showStatus('Failed to delete project: ' + e, 'error');
+                    }
+                },
+
+                selectProject(id) {
+                    this.selectedProjectId = this.selectedProjectId === id ? null : id;
+                    this.currentFilter = null;
+                    this.offset = 0;
+                    this.loadPapersForProject();
+                },
+
+                async loadPapersForProject() {
+                    if (!this.selectedProjectId) {
+                        await this.loadPapers();
+                        return;
+                    }
+                    try {
+                        const citekeys = await invoke('get_project_papers', { projectId: this.selectedProjectId });
+                        if (citekeys.length === 0) {
+                            this.papers = [];
+                            this.totalPapers = 0;
+                        } else {
+                            // Load full paper data for each citekey
+                            const allPapers = await invoke('get_papers', {
+                                vaultPath: this.vaultPath,
+                                limit: 1000
+                            });
+                            this.papers = allPapers.papers.filter(p => citekeys.includes(p.citekey));
+                            this.totalPapers = this.papers.length;
+                        }
+                    } catch (e) {
+                        console.error('Failed to load project papers:', e);
+                    }
+                },
+
+                async addPaperToProject(projectId, citekey) {
+                    try {
+                        await invoke('add_paper_to_project', { projectId, citekey });
+                        const project = this.projects.find(p => p.id === projectId);
+                        if (project) project.paper_count++;
+                        this.showStatus('Added to project', 'success');
+                    } catch (e) {
+                        this.showStatus('Failed to add to project: ' + e, 'error');
+                    }
+                },
+
+                async removePaperFromProject(projectId, citekey) {
+                    try {
+                        await invoke('remove_paper_from_project', { projectId, citekey });
+                        const project = this.projects.find(p => p.id === projectId);
+                        if (project && project.paper_count > 0) project.paper_count--;
+                        if (this.selectedProjectId === projectId) {
+                            await this.loadPapersForProject();
+                        }
+                        this.showStatus('Removed from project', 'success');
+                    } catch (e) {
+                        this.showStatus('Failed to remove from project: ' + e, 'error');
+                    }
+                },
+
                 clearFilter() {
                     this.currentFilter = null;
                     this.searchQuery = '';
@@ -2817,7 +3138,8 @@
 
                 async findPDFSingle(citekey) {
                     this.loadingPaper = citekey;
-                    this.statusMessage = `Searching for PDF...`;
+                    this.pdfSearchProgress = { citekey, progress: 0, current_source: null, message: 'Starting search...' };
+                    this.statusMessage = null;
                     this.statusType = 'info';
                     this.statusLinks = null;
 
@@ -2850,6 +3172,7 @@
                         this.statusType = 'error';
                     } finally {
                         this.loadingPaper = null;
+                        this.pdfSearchProgress = null;
                     }
                 },
 
@@ -2871,10 +3194,19 @@
                             if (result.success) {
                                 this.statusMessage = `Successfully summarized!`;
                                 this.statusType = 'success';
+                                this.lastSummarizationError = null;
                                 await this.refreshData();
                             } else {
                                 this.statusMessage = `Error: ${result.error}`;
                                 this.statusType = 'error';
+                                // Store error info for "View Raw Response" action
+                                if (result.raw_response_path) {
+                                    this.lastSummarizationError = {
+                                        citekey,
+                                        error: result.error,
+                                        raw_response_path: result.raw_response_path
+                                    };
+                                }
                             }
                         } else {
                             const res = await fetch(`/api/papers/${citekey}/summarize`, { method: 'POST' });
@@ -3608,6 +3940,14 @@
                     }
                 },
 
+                setNetworkLayout(mode) {
+                    this.networkLayoutMode = mode;
+                    if (mode === 'force') {
+                        this.networkFocusPaper = null;
+                    }
+                    this.initNetworkGraph();
+                },
+
                 initNetworkGraph() {
                     const container = document.getElementById('network-graph');
                     if (!container || typeof vis === 'undefined') {
@@ -3618,56 +3958,194 @@
                     // Define status-based colors
                     const statusColors = {
                         discovered: '#8B949E',
+                        wanted: '#3B5998',
+                        queued: '#B08D57',
                         downloaded: '#2D6A4F',
                         summarized: '#5B4B8A',
+                        failed: '#9B2C2C',
                     };
 
-                    // Create nodes dataset with colors
-                    const nodes = new vis.DataSet(this.networkNodes.map(n => ({
-                        id: n.id,
-                        label: n.label,
-                        title: `${n.title}\n(${n.year || 'n.d.'})`,
-                        color: {
-                            background: statusColors[n.group] || '#8B949E',
-                            border: statusColors[n.group] || '#8B949E',
-                            highlight: {
-                                background: statusColors[n.group] || '#8B949E',
-                                border: '#22324A'
-                            }
-                        }
-                    })));
-
-                    // Create edges dataset
-                    const edges = new vis.DataSet(this.networkEdges.map(e => ({
-                        from: e.from,
-                        to: e.to,
-                        title: e.title,
-                        smooth: { type: 'continuous' }
-                    })));
-
-                    // Network options
-                    const options = {
-                        nodes: {
-                            font: { size: 12, face: 'Inter, sans-serif' },
-                            borderWidth: 2,
-                            shape: 'dot',
-                            size: 15
-                        },
-                        edges: {
-                            width: 1,
-                            color: { color: '#D4C9B8', highlight: '#22324A' }
-                        },
-                        physics: {
-                            barnesHut: {
-                                gravitationalConstant: -2000,
-                                springLength: 150
-                            }
-                        },
-                        interaction: {
-                            hover: true,
-                            tooltipDelay: 200
-                        }
+                    // Edge colors by relationship type
+                    const edgeColors = {
+                        cites: '#4A90A4',
+                        cited_by: '#6BA35E',
+                        related: '#9B59B6',
+                        default: '#D4C9B8'
                     };
+
+                    // Determine which nodes and edges to show
+                    let displayNodes = this.networkNodes;
+                    let displayEdges = this.networkEdges;
+
+                    // For tree view, filter to subgraph centered on focus paper
+                    if (this.networkLayoutMode === 'tree' && this.networkFocusPaper) {
+                        const focusId = this.networkFocusPaper;
+                        const includedIds = new Set([focusId]);
+                        const relevantEdges = [];
+
+                        // Get all edges connected to focus paper (depth 1)
+                        for (const edge of this.networkEdges) {
+                            if (edge.from === focusId || edge.to === focusId) {
+                                includedIds.add(edge.from);
+                                includedIds.add(edge.to);
+                                relevantEdges.push(edge);
+                            }
+                        }
+
+                        // Get depth 2 connections
+                        for (const edge of this.networkEdges) {
+                            if (includedIds.has(edge.from) || includedIds.has(edge.to)) {
+                                includedIds.add(edge.from);
+                                includedIds.add(edge.to);
+                                if (!relevantEdges.includes(edge)) {
+                                    relevantEdges.push(edge);
+                                }
+                            }
+                        }
+
+                        displayNodes = this.networkNodes.filter(n => includedIds.has(n.id));
+                        displayEdges = relevantEdges;
+                    }
+
+                    // Create nodes dataset with colors and levels for tree layout
+                    const nodes = new vis.DataSet(displayNodes.map(n => {
+                        const isRoot = this.networkLayoutMode === 'tree' && n.id === this.networkFocusPaper;
+                        let level = 0;
+
+                        if (this.networkLayoutMode === 'tree' && this.networkFocusPaper) {
+                            // Assign levels based on edge direction from focus paper
+                            const focusId = this.networkFocusPaper;
+                            if (n.id === focusId) {
+                                level = 0;
+                            } else {
+                                // Check if this node cites or is cited by the focus paper
+                                const citesRoot = displayEdges.some(e => e.from === n.id && e.to === focusId);
+                                const citedByRoot = displayEdges.some(e => e.from === focusId && e.to === n.id);
+                                const directlyConnected = displayEdges.some(
+                                    e => (e.from === focusId && e.to === n.id) || (e.to === focusId && e.from === n.id)
+                                );
+
+                                if (directlyConnected) {
+                                    level = 1;
+                                } else {
+                                    level = 2;
+                                }
+                            }
+                        }
+
+                        return {
+                            id: n.id,
+                            label: n.label,
+                            title: `${n.title}\n(${n.year || 'n.d.'})`,
+                            level: level,
+                            color: {
+                                background: isRoot ? '#22324A' : (statusColors[n.group] || '#8B949E'),
+                                border: isRoot ? '#22324A' : (statusColors[n.group] || '#8B949E'),
+                                highlight: {
+                                    background: statusColors[n.group] || '#8B949E',
+                                    border: '#22324A'
+                                }
+                            },
+                            font: {
+                                color: isRoot ? '#FFFFFF' : '#1F2328'
+                            },
+                            size: isRoot ? 25 : 15
+                        };
+                    }));
+
+                    // Create edges dataset with labels and colors
+                    const edges = new vis.DataSet(displayEdges.map(e => {
+                        // Determine edge type from title/reason
+                        const reason = (e.title || '').toLowerCase();
+                        let edgeType = 'default';
+                        let label = '';
+
+                        if (reason.includes('cites') || reason.includes('citation')) {
+                            edgeType = 'cites';
+                            label = 'cites';
+                        } else if (reason.includes('cited by')) {
+                            edgeType = 'cited_by';
+                            label = 'cited by';
+                        } else if (reason.includes('related') || reason.includes('similar')) {
+                            edgeType = 'related';
+                            label = 'related';
+                        } else if (e.title) {
+                            label = e.title.length > 20 ? e.title.substring(0, 20) + '...' : e.title;
+                        }
+
+                        return {
+                            from: e.from,
+                            to: e.to,
+                            title: e.title,
+                            label: label,
+                            arrows: 'to',
+                            color: { color: edgeColors[edgeType] || edgeColors.default },
+                            smooth: this.networkLayoutMode === 'tree'
+                                ? { type: 'cubicBezier', forceDirection: 'vertical', roundness: 0.4 }
+                                : { type: 'continuous' },
+                            font: { size: 10, color: '#666', strokeWidth: 0, background: 'white' }
+                        };
+                    }));
+
+                    // Network options - vary based on layout mode
+                    let options;
+
+                    if (this.networkLayoutMode === 'tree') {
+                        options = {
+                            nodes: {
+                                font: { size: 12, face: 'Inter, sans-serif' },
+                                borderWidth: 2,
+                                shape: 'box',
+                                margin: 10
+                            },
+                            edges: {
+                                width: 1.5,
+                                font: { align: 'middle' }
+                            },
+                            layout: {
+                                hierarchical: {
+                                    enabled: true,
+                                    direction: 'UD',  // Up-Down
+                                    sortMethod: 'directed',
+                                    levelSeparation: 120,
+                                    nodeSpacing: 150,
+                                    treeSpacing: 200
+                                }
+                            },
+                            physics: {
+                                enabled: false  // Disable physics for tree layout
+                            },
+                            interaction: {
+                                hover: true,
+                                tooltipDelay: 200,
+                                dragNodes: true
+                            }
+                        };
+                    } else {
+                        options = {
+                            nodes: {
+                                font: { size: 12, face: 'Inter, sans-serif' },
+                                borderWidth: 2,
+                                shape: 'dot',
+                                size: 15
+                            },
+                            edges: {
+                                width: 1,
+                                color: { color: '#D4C9B8', highlight: '#22324A' },
+                                font: { align: 'middle', size: 10 }
+                            },
+                            physics: {
+                                barnesHut: {
+                                    gravitationalConstant: -2000,
+                                    springLength: 150
+                                }
+                            },
+                            interaction: {
+                                hover: true,
+                                tooltipDelay: 200
+                            }
+                        };
+                    }
 
                     // Create network
                     this.networkGraph = new vis.Network(container, { nodes, edges }, options);
@@ -3680,10 +4158,16 @@
                         }
                     });
 
-                    // Handle double-click -> set as connection source
+                    // Handle double-click -> set as focus paper for tree view, or connection source
                     this.networkGraph.on('doubleClick', (params) => {
                         if (params.nodes.length > 0) {
-                            this.connectSource = params.nodes[0];
+                            const citekey = params.nodes[0];
+                            if (this.networkLayoutMode === 'tree') {
+                                this.networkFocusPaper = citekey;
+                                this.initNetworkGraph();
+                            } else {
+                                this.connectSource = citekey;
+                            }
                         }
                     });
                 },

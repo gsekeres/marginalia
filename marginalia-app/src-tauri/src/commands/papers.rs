@@ -1,68 +1,14 @@
-use crate::models::{Paper, PaperStatus, VaultIndex, VaultStats};
+//! Paper management commands
+
+use crate::models::{Paper, PaperStatus, VaultStats};
+use crate::storage::PaperRepo;
+use crate::AppState;
 use std::path::PathBuf;
 use std::fs;
 use std::io::Write;
 use chrono::Utc;
-
-const INDEX_FILENAME: &str = ".marginalia_index.json";
-
-fn load_index(vault_path: &str) -> Result<VaultIndex, String> {
-    let path = PathBuf::from(vault_path).join(INDEX_FILENAME);
-    if !path.exists() {
-        return Ok(VaultIndex::new());
-    }
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read index: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse index: {}", e))
-}
-
-fn save_index(vault_path: &str, index: &VaultIndex) -> Result<(), String> {
-    let path = PathBuf::from(vault_path).join(INDEX_FILENAME);
-    let content = serde_json::to_string_pretty(index)
-        .map_err(|e| format!("Failed to serialize index: {}", e))?;
-    fs::write(&path, content)
-        .map_err(|e| format!("Failed to write index: {}", e))
-}
-
-#[tauri::command]
-pub async fn get_papers(
-    vault_path: String,
-    status: Option<String>,
-    limit: Option<usize>,
-    offset: Option<usize>,
-) -> Result<PapersResponse, String> {
-    let index = load_index(&vault_path)?;
-
-    let mut papers: Vec<Paper> = index.papers.values().cloned().collect();
-
-    // Filter by status if provided
-    if let Some(status_filter) = status {
-        papers.retain(|p| {
-            let status_str = match p.status {
-                PaperStatus::Discovered => "discovered",
-                PaperStatus::Wanted => "wanted",
-                PaperStatus::Queued => "queued",
-                PaperStatus::Downloaded => "downloaded",
-                PaperStatus::Summarized => "summarized",
-                PaperStatus::Failed => "failed",
-            };
-            status_str == status_filter
-        });
-    }
-
-    // Sort by year descending
-    papers.sort_by(|a, b| b.year.cmp(&a.year));
-
-    let total = papers.len();
-
-    // Apply pagination
-    let offset = offset.unwrap_or(0);
-    let limit = limit.unwrap_or(100);
-    let papers: Vec<Paper> = papers.into_iter().skip(offset).take(limit).collect();
-
-    Ok(PapersResponse { total, papers })
-}
+use tauri::State;
+use tracing::info;
 
 #[derive(serde::Serialize)]
 pub struct PapersResponse {
@@ -71,15 +17,61 @@ pub struct PapersResponse {
 }
 
 #[tauri::command]
-pub async fn get_paper(vault_path: String, citekey: String) -> Result<Option<Paper>, String> {
-    let index = load_index(&vault_path)?;
-    Ok(index.papers.get(&citekey).cloned())
+pub async fn get_papers(
+    vault_path: String,
+    status: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<PapersResponse, String> {
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
+
+    let paper_repo = PaperRepo::new(&db.conn);
+
+    let limit = limit.unwrap_or(100);
+    let offset = offset.unwrap_or(0);
+
+    let papers = paper_repo.list(status.as_deref(), limit, offset)
+        .map_err(|e| format!("Failed to get papers: {}", e))?;
+
+    // Get total count
+    let total = if let Some(ref status_filter) = status {
+        paper_repo.count_by_status(status_filter)
+            .map_err(|e| format!("Failed to count papers: {}", e))? as usize
+    } else {
+        paper_repo.stats()
+            .map_err(|e| format!("Failed to get stats: {}", e))?.total
+    };
+
+    Ok(PapersResponse { total, papers })
 }
 
 #[tauri::command]
-pub async fn get_stats(vault_path: String) -> Result<VaultStats, String> {
-    let index = load_index(&vault_path)?;
-    Ok(index.stats())
+pub async fn get_paper(
+    vault_path: String,
+    citekey: String,
+    state: State<'_, AppState>,
+) -> Result<Option<Paper>, String> {
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
+
+    let paper_repo = PaperRepo::new(&db.conn);
+    paper_repo.get(&citekey)
+        .map_err(|e| format!("Failed to get paper: {}", e))
+}
+
+#[tauri::command]
+pub async fn get_stats(
+    vault_path: String,
+    state: State<'_, AppState>,
+) -> Result<VaultStats, String> {
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
+
+    let paper_repo = PaperRepo::new(&db.conn);
+    paper_repo.stats()
+        .map_err(|e| format!("Failed to get stats: {}", e))
 }
 
 #[tauri::command]
@@ -87,41 +79,37 @@ pub async fn update_paper_status(
     vault_path: String,
     citekey: String,
     status: String,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut index = load_index(&vault_path)?;
+    // Validate status
+    let valid_statuses = ["discovered", "wanted", "queued", "downloaded", "summarized", "failed"];
+    if !valid_statuses.contains(&status.as_str()) {
+        return Err(format!("Invalid status: {}", status));
+    }
 
-    let paper = index.papers.get_mut(&citekey)
-        .ok_or_else(|| format!("Paper not found: {}", citekey))?;
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
 
-    paper.status = match status.as_str() {
-        "discovered" => PaperStatus::Discovered,
-        "wanted" => PaperStatus::Wanted,
-        "queued" => PaperStatus::Queued,
-        "downloaded" => PaperStatus::Downloaded,
-        "summarized" => PaperStatus::Summarized,
-        "failed" => PaperStatus::Failed,
-        _ => return Err(format!("Invalid status: {}", status)),
-    };
+    let paper_repo = PaperRepo::new(&db.conn);
+    paper_repo.update_status(&citekey, &status)
+        .map_err(|e| format!("Failed to update status: {}", e))?;
 
-    save_index(&vault_path, &index)?;
+    info!("Updated paper {} status to {}", citekey, status);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn search_papers(vault_path: String, query: String) -> Result<Vec<Paper>, String> {
-    let index = load_index(&vault_path)?;
-    let query = query.to_lowercase();
+pub async fn search_papers(
+    vault_path: String,
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<Paper>, String> {
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
 
-    let results: Vec<Paper> = index.papers.values()
-        .filter(|p| {
-            p.title.to_lowercase().contains(&query) ||
-            p.citekey.to_lowercase().contains(&query) ||
-            p.authors.iter().any(|a| a.to_lowercase().contains(&query))
-        })
-        .cloned()
-        .collect();
-
-    Ok(results)
+    let paper_repo = PaperRepo::new(&db.conn);
+    paper_repo.search(&query)
+        .map_err(|e| format!("Failed to search papers: {}", e))
 }
 
 #[derive(serde::Deserialize)]
@@ -142,16 +130,21 @@ pub struct AddRelatedPaperResponse {
 pub async fn add_related_paper(
     vault_path: String,
     request: AddRelatedPaperRequest,
+    state: State<'_, AppState>,
 ) -> Result<AddRelatedPaperResponse, String> {
-    let mut index = load_index(&vault_path)?;
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
+
+    let paper_repo = PaperRepo::new(&db.conn);
 
     // First, check if paper already exists by matching title or authors+year
-    if let Some(existing_citekey) = find_existing_paper(&index, &request) {
+    if let Some(existing_citekey) = find_existing_paper(&paper_repo, &request)? {
         // Update the existing paper's cited_by if not already there
-        if let Some(paper) = index.papers.get_mut(&existing_citekey) {
+        if let Ok(Some(mut paper)) = paper_repo.get(&existing_citekey) {
             if !paper.cited_by.contains(&request.source_citekey) {
                 paper.cited_by.push(request.source_citekey.clone());
-                save_index(&vault_path, &index)?;
+                paper_repo.update(&paper)
+                    .map_err(|e| format!("Failed to update paper: {}", e))?;
             }
         }
         return Ok(AddRelatedPaperResponse {
@@ -166,7 +159,7 @@ pub async fn add_related_paper(
     // If citekey already exists (collision), add a suffix
     let base_citekey = citekey.clone();
     let mut suffix = 'a';
-    while index.papers.contains_key(&citekey) {
+    while paper_repo.exists(&citekey).unwrap_or(false) {
         citekey = format!("{}{}", base_citekey, suffix);
         suffix = (suffix as u8 + 1) as char;
         if suffix > 'z' {
@@ -202,12 +195,14 @@ pub async fn add_related_paper(
         manual_download_links: Vec::new(),
     };
 
-    // Add to index
-    index.papers.insert(citekey.clone(), paper);
-    save_index(&vault_path, &index)?;
+    // Add to database
+    paper_repo.insert(&paper)
+        .map_err(|e| format!("Failed to insert paper: {}", e))?;
 
     // Append BibTeX entry to .bib file
     append_bibtex_entry(&vault_path, &citekey, &request)?;
+
+    info!("Added related paper: {}", citekey);
 
     Ok(AddRelatedPaperResponse {
         status: "added".to_string(),
@@ -215,18 +210,22 @@ pub async fn add_related_paper(
     })
 }
 
-fn find_existing_paper(index: &VaultIndex, request: &AddRelatedPaperRequest) -> Option<String> {
+fn find_existing_paper(repo: &PaperRepo, request: &AddRelatedPaperRequest) -> Result<Option<String>, String> {
     let request_title_normalized = normalize_title(&request.title);
     let request_first_author = request.authors.first()
         .map(|a| normalize_author(a))
         .unwrap_or_default();
 
-    for (citekey, paper) in &index.papers {
+    // Get all papers and check for duplicates
+    let papers = repo.get_all()
+        .map_err(|e| format!("Failed to get papers: {}", e))?;
+
+    for (citekey, paper) in &papers {
         // Check by normalized title (fuzzy match)
         let paper_title_normalized = normalize_title(&paper.title);
         if !request_title_normalized.is_empty()
             && titles_match(&request_title_normalized, &paper_title_normalized) {
-            return Some(citekey.clone());
+            return Ok(Some(citekey.clone()));
         }
 
         // Check by first author + year
@@ -235,12 +234,12 @@ fn find_existing_paper(index: &VaultIndex, request: &AddRelatedPaperRequest) -> 
             if request.year == paper.year
                 && !request_first_author.is_empty()
                 && authors_match(&request_first_author, &paper_author_normalized) {
-                return Some(citekey.clone());
+                return Ok(Some(citekey.clone()));
             }
         }
     }
 
-    None
+    Ok(None)
 }
 
 fn normalize_title(title: &str) -> String {

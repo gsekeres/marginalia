@@ -1,0 +1,12 @@
+{"ts":"2026-01-20T16:15:28.433109+00:00","iteration":0,"hat":"loop","topic":"task.start","triggered":"planner","payload":"PROMPT.md"}
+{"payload":"Phase 1 tasks prioritized in scratchpad","topic":"plan.ready","ts":"2026-01-20T16:17:28.988430+00:00"}
+{"payload":"BibTeX parser replaced with biblatex crate - nested braces now handled correctly","topic":"task.done","ts":"2026-01-20T16:21:15.392595+00:00"}
+{"payload":"Phase 1.2 PDF robustness complete: rate limiting, retry, PDF validation, login detection, arXiv adapter","topic":"task.done","ts":"2026-01-20T16:25:41.687694+00:00"}
+{"payload":"Implemented summarizer retry logic (3 attempts). Next: partial results on failure","topic":"task.done","ts":"2026-01-20T16:40:40.544070+00:00"}
+{"payload":"auto-link related papers implemented","topic":"task.done","ts":"2026-01-20T16:44:16.800436+00:00"}
+{"payload":"Implemented View Raw Response feature for summarization parse failures","topic":"task.done","ts":"2026-01-20T16:49:50.111689+00:00"}
+{"payload":"Phase 2 (Project Organization) complete - typecheck: pass, cargo check: pass","topic":"task.done","ts":"2026-01-20T17:04:22.127400+00:00"}
+{"payload":"Phase 3 complete: tree-based network visualization with layout toggle, edge labels, color-coded relationships","topic":"task.done","ts":"2026-01-20T17:07:12.987004+00:00"}
+{"payload":"All phases done, ready for manual testing","topic":"loop.complete","ts":"2026-01-20T17:09:06.666705+00:00"}
+{"payload":"All 4 phases done. Typecheck: pass. Cargo check: pass (28 warnings, 0 errors). Ready for manual testing.","topic":"loop.complete","ts":"2026-01-20T17:09:49.071396+00:00"}
+{"ts":"2026-01-20T17:09:58.840102+00:00","iteration":11,"hat":"loop","topic":"loop.terminate","payload":"## Reason\ncompleted\n\n## Status\nAll tasks completed successfully.\n\n## Summary\n- Iterations: 11\n- Duration: 48m 47s\n- Exit code: 0"}

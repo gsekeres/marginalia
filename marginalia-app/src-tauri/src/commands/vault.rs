@@ -1,40 +1,73 @@
+//! Vault management commands
+//!
+//! Handles opening, creating, and managing vaults with SQLite storage.
+
 use std::path::PathBuf;
 use std::fs;
-use crate::models::{VaultIndex, RecentVault, AppSettings};
+use tauri::State;
+use tracing::{info, warn};
+
+use crate::models::{VaultIndex, VaultStats, RecentVault, AppSettings, PaperStatus};
+use crate::storage::{open_database, Database, PaperRepo};
+use crate::AppState;
+
 use chrono::Utc;
 
-const INDEX_FILENAME: &str = ".marginalia_index.json";
-
-pub struct AppState {
-    pub vault_path: std::sync::Mutex<Option<PathBuf>>,
-    pub index: std::sync::Mutex<VaultIndex>,
-    pub settings: std::sync::Mutex<AppSettings>,
-}
-
+/// Open an existing vault, migrating from JSON if needed
 #[tauri::command]
-pub async fn open_vault(path: String) -> Result<VaultIndex, String> {
+pub async fn open_vault(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<VaultIndex, String> {
     let vault_path = PathBuf::from(&path);
 
     if !vault_path.exists() {
         return Err(format!("Vault path does not exist: {}", path));
     }
 
-    let index_path = vault_path.join(INDEX_FILENAME);
+    info!("Opening vault at {:?}", vault_path);
 
-    let index = if index_path.exists() {
-        let content = fs::read_to_string(&index_path)
-            .map_err(|e| format!("Failed to read index: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse index: {}", e))?
-    } else {
-        VaultIndex::new()
+    // Open or create the database, which handles migration from JSON
+    let db = open_database(&vault_path)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
+
+    // Get all papers and connections from the database
+    let paper_repo = PaperRepo::new(&db.conn);
+    let papers = paper_repo.get_all()
+        .map_err(|e| format!("Failed to load papers: {}", e))?;
+
+    let conn_repo = crate::storage::ConnectionRepo::new(&db.conn);
+    let connections = conn_repo.get_all()
+        .map_err(|e| format!("Failed to load connections: {}", e))?;
+
+    // Build VaultIndex for compatibility with frontend
+    let index = VaultIndex {
+        papers,
+        connections,
+        last_updated: Utc::now(),
+        source_bib_path: None,
     };
 
+    // Store database in app state
+    {
+        let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        *db_guard = Some(db);
+    }
+    {
+        let mut path_guard = state.vault_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = Some(vault_path);
+    }
+
+    info!("Vault opened with {} papers", index.papers.len());
     Ok(index)
 }
 
+/// Create a new vault
 #[tauri::command]
-pub async fn create_vault(path: String) -> Result<VaultIndex, String> {
+pub async fn create_vault(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<VaultIndex, String> {
     let vault_path = PathBuf::from(&path);
 
     // Create vault directory structure
@@ -45,17 +78,26 @@ pub async fn create_vault(path: String) -> Result<VaultIndex, String> {
     fs::create_dir_all(&papers_path)
         .map_err(|e| format!("Failed to create papers directory: {}", e))?;
 
-    // Create empty index
-    let index = VaultIndex::new();
-    let index_path = vault_path.join(INDEX_FILENAME);
-    let content = serde_json::to_string_pretty(&index)
-        .map_err(|e| format!("Failed to serialize index: {}", e))?;
-    fs::write(&index_path, content)
-        .map_err(|e| format!("Failed to write index: {}", e))?;
+    info!("Created vault at {:?}", vault_path);
 
-    Ok(index)
+    // Open the database (this will create it and run migrations)
+    let db = open_database(&vault_path)
+        .map_err(|e| format!("Failed to create database: {}", e))?;
+
+    // Store in app state
+    {
+        let mut db_guard = state.db.lock().map_err(|e| e.to_string())?;
+        *db_guard = Some(db);
+    }
+    {
+        let mut path_guard = state.vault_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = Some(vault_path);
+    }
+
+    Ok(VaultIndex::new())
 }
 
+/// Get list of recently opened vaults
 #[tauri::command]
 pub async fn get_recent_vaults() -> Result<Vec<RecentVault>, String> {
     let app_support = dirs::data_dir()
@@ -76,19 +118,42 @@ pub async fn get_recent_vaults() -> Result<Vec<RecentVault>, String> {
     Ok(settings.recent_vaults)
 }
 
+/// Save the index (for backward compatibility - now syncs to database)
 #[tauri::command]
-pub async fn save_index(path: String, index: VaultIndex) -> Result<(), String> {
-    let vault_path = PathBuf::from(&path);
-    let index_path = vault_path.join(INDEX_FILENAME);
+pub async fn save_index(
+    _path: String,
+    index: VaultIndex,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Get the database from state
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
 
-    let content = serde_json::to_string_pretty(&index)
-        .map_err(|e| format!("Failed to serialize index: {}", e))?;
-    fs::write(&index_path, content)
-        .map_err(|e| format!("Failed to write index: {}", e))?;
+    let paper_repo = PaperRepo::new(&db.conn);
 
+    // Update each paper in the database
+    for (_, paper) in &index.papers {
+        if paper_repo.exists(&paper.citekey).unwrap_or(false) {
+            paper_repo.update(paper)
+                .map_err(|e| format!("Failed to update paper {}: {}", paper.citekey, e))?;
+        } else {
+            paper_repo.insert(paper)
+                .map_err(|e| format!("Failed to insert paper {}: {}", paper.citekey, e))?;
+        }
+    }
+
+    // Update connections
+    let conn_repo = crate::storage::ConnectionRepo::new(&db.conn);
+    for connection in &index.connections {
+        conn_repo.add(&connection.source, &connection.target, &connection.reason)
+            .map_err(|e| format!("Failed to save connection: {}", e))?;
+    }
+
+    info!("Saved index with {} papers to database", index.papers.len());
     Ok(())
 }
 
+/// Add a vault to the recent vaults list
 #[tauri::command]
 pub async fn add_recent_vault(path: String, paper_count: usize) -> Result<(), String> {
     let app_support = dirs::data_dir()
@@ -143,29 +208,34 @@ pub async fn add_recent_vault(path: String, paper_count: usize) -> Result<(), St
     Ok(())
 }
 
+/// Get vault statistics
 #[tauri::command]
-pub async fn get_vault_stats(path: String) -> Result<crate::models::VaultStats, String> {
-    let index = open_vault(path).await?;
-    Ok(index.stats())
+pub async fn get_vault_stats(
+    _vault_path: String,
+    state: State<'_, AppState>,
+) -> Result<VaultStats, String> {
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
+
+    let paper_repo = PaperRepo::new(&db.conn);
+    paper_repo.stats()
+        .map_err(|e| format!("Failed to get stats: {}", e))
 }
 
-/// Scan vault folder for existing PDFs and summaries, updating the index
+/// Scan vault folder for existing PDFs and summaries, updating the database
 #[tauri::command]
-pub async fn scan_vault_files(path: String) -> Result<ScanResult, String> {
+pub async fn scan_vault_files(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<ScanResult, String> {
     let vault_path = PathBuf::from(&path);
-    let index_path = vault_path.join(INDEX_FILENAME);
     let papers_path = vault_path.join("papers");
 
-    // Load existing index
-    let mut index: VaultIndex = if index_path.exists() {
-        let content = fs::read_to_string(&index_path)
-            .map_err(|e| format!("Failed to read index: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse index: {}", e))?
-    } else {
-        VaultIndex::new()
-    };
+    // Get the database
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
 
+    let paper_repo = PaperRepo::new(&db.conn);
     let mut updated = 0;
 
     // Scan papers directory
@@ -179,8 +249,8 @@ pub async fn scan_vault_files(path: String) -> Result<ScanResult, String> {
                     continue;
                 }
 
-                // Check if paper exists in index
-                if let Some(paper) = index.papers.get_mut(&citekey) {
+                // Check if paper exists in database
+                if let Ok(Some(mut paper)) = paper_repo.get(&citekey) {
                     let pdf_path = paper_dir.join("paper.pdf");
                     let summary_path = paper_dir.join("summary.md");
 
@@ -189,8 +259,8 @@ pub async fn scan_vault_files(path: String) -> Result<ScanResult, String> {
                     // Check for PDF
                     if pdf_path.exists() && paper.pdf_path.is_none() {
                         paper.pdf_path = Some(format!("papers/{}/paper.pdf", citekey));
-                        if paper.status == crate::models::PaperStatus::Discovered {
-                            paper.status = crate::models::PaperStatus::Downloaded;
+                        if paper.status == PaperStatus::Discovered {
+                            paper.status = PaperStatus::Downloaded;
                         }
                         changed = true;
                     }
@@ -198,11 +268,13 @@ pub async fn scan_vault_files(path: String) -> Result<ScanResult, String> {
                     // Check for summary
                     if summary_path.exists() && paper.summary_path.is_none() {
                         paper.summary_path = Some(format!("papers/{}/summary.md", citekey));
-                        paper.status = crate::models::PaperStatus::Summarized;
+                        paper.status = PaperStatus::Summarized;
                         changed = true;
                     }
 
                     if changed {
+                        paper_repo.update(&paper)
+                            .map_err(|e| format!("Failed to update paper: {}", e))?;
                         updated += 1;
                     }
                 }
@@ -210,13 +282,22 @@ pub async fn scan_vault_files(path: String) -> Result<ScanResult, String> {
         }
     }
 
-    // Save updated index
-    if updated > 0 {
-        let content = serde_json::to_string_pretty(&index)
-            .map_err(|e| format!("Failed to serialize index: {}", e))?;
-        fs::write(&index_path, content)
-            .map_err(|e| format!("Failed to write index: {}", e))?;
-    }
+    // Get updated index
+    let papers = paper_repo.get_all()
+        .map_err(|e| format!("Failed to get papers: {}", e))?;
+
+    let conn_repo = crate::storage::ConnectionRepo::new(&db.conn);
+    let connections = conn_repo.get_all()
+        .map_err(|e| format!("Failed to get connections: {}", e))?;
+
+    let index = VaultIndex {
+        papers,
+        connections,
+        last_updated: Utc::now(),
+        source_bib_path: None,
+    };
+
+    info!("Scanned vault files, updated {} papers", updated);
 
     Ok(ScanResult {
         updated,

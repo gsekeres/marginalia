@@ -267,3 +267,22 @@ fn titles_match(t1: &str, t2: &str) -> bool {
 
     false
 }
+
+/// Read the raw response file for a paper (saved when summarization parse fails)
+#[tauri::command]
+pub async fn read_raw_response(vault_path: String, citekey: String) -> Result<String, String> {
+    let raw_response_path = PathBuf::from(&vault_path)
+        .join("papers")
+        .join(&citekey)
+        .join("raw_response.txt");
+
+    if !raw_response_path.exists() {
+        return Err(format!(
+            "Raw response file not found for paper: {}",
+            citekey
+        ));
+    }
+
+    std::fs::read_to_string(&raw_response_path)
+        .map_err(|e| format!("Failed to read raw response: {}", e))
+}

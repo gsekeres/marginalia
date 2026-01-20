@@ -1,28 +1,10 @@
-use crate::models::{VaultIndex, PaperConnection};
-use std::path::PathBuf;
-use std::fs;
-use chrono::Utc;
+//! Graph commands for paper network visualization
 
-const INDEX_FILENAME: &str = ".marginalia_index.json";
-
-fn load_index(vault_path: &str) -> Result<VaultIndex, String> {
-    let path = PathBuf::from(vault_path).join(INDEX_FILENAME);
-    if !path.exists() {
-        return Ok(VaultIndex::new());
-    }
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read index: {}", e))?;
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse index: {}", e))
-}
-
-fn save_index(vault_path: &str, index: &VaultIndex) -> Result<(), String> {
-    let path = PathBuf::from(vault_path).join(INDEX_FILENAME);
-    let content = serde_json::to_string_pretty(index)
-        .map_err(|e| format!("Failed to serialize index: {}", e))?;
-    fs::write(&path, content)
-        .map_err(|e| format!("Failed to write index: {}", e))
-}
+use crate::models::PaperStatus;
+use crate::storage::{PaperRepo, ConnectionRepo};
+use crate::AppState;
+use tauri::State;
+use tracing::info;
 
 #[derive(serde::Serialize)]
 pub struct GraphNode {
@@ -47,17 +29,30 @@ pub struct GraphData {
 }
 
 #[tauri::command]
-pub async fn get_graph(vault_path: String) -> Result<GraphData, String> {
-    let index = load_index(&vault_path)?;
+pub async fn get_graph(
+    vault_path: String,
+    state: State<'_, AppState>,
+) -> Result<GraphData, String> {
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
 
-    let nodes: Vec<GraphNode> = index.papers.values().map(|p| {
+    let paper_repo = PaperRepo::new(&db.conn);
+    let conn_repo = ConnectionRepo::new(&db.conn);
+
+    let papers = paper_repo.get_all()
+        .map_err(|e| format!("Failed to get papers: {}", e))?;
+
+    let connections = conn_repo.get_all()
+        .map_err(|e| format!("Failed to get connections: {}", e))?;
+
+    let nodes: Vec<GraphNode> = papers.values().map(|p| {
         let group = match p.status {
-            crate::models::PaperStatus::Discovered => "discovered",
-            crate::models::PaperStatus::Wanted => "wanted",
-            crate::models::PaperStatus::Queued => "queued",
-            crate::models::PaperStatus::Downloaded => "downloaded",
-            crate::models::PaperStatus::Summarized => "summarized",
-            crate::models::PaperStatus::Failed => "failed",
+            PaperStatus::Discovered => "discovered",
+            PaperStatus::Wanted => "wanted",
+            PaperStatus::Queued => "queued",
+            PaperStatus::Downloaded => "downloaded",
+            PaperStatus::Summarized => "summarized",
+            PaperStatus::Failed => "failed",
         };
 
         GraphNode {
@@ -69,7 +64,7 @@ pub async fn get_graph(vault_path: String) -> Result<GraphData, String> {
         }
     }).collect();
 
-    let edges: Vec<GraphEdge> = index.connections.iter().map(|c| {
+    let edges: Vec<GraphEdge> = connections.iter().map(|c| {
         GraphEdge {
             from: c.source.clone(),
             to: c.target.clone(),
@@ -86,37 +81,33 @@ pub async fn connect_papers(
     source: String,
     target: String,
     reason: String,
+    state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut index = load_index(&vault_path)?;
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
+
+    let paper_repo = PaperRepo::new(&db.conn);
+    let conn_repo = ConnectionRepo::new(&db.conn);
 
     // Verify both papers exist
-    if !index.papers.contains_key(&source) {
+    if !paper_repo.exists(&source).unwrap_or(false) {
         return Err(format!("Paper not found: {}", source));
     }
-    if !index.papers.contains_key(&target) {
+    if !paper_repo.exists(&target).unwrap_or(false) {
         return Err(format!("Paper not found: {}", target));
     }
 
-    // Check if connection already exists
-    let exists = index.connections.iter().any(|c| {
-        (c.source == source && c.target == target) ||
-        (c.source == target && c.target == source)
-    });
-
-    if exists {
+    // Check if connection already exists (in either direction)
+    if conn_repo.exists(&source, &target).unwrap_or(false) ||
+       conn_repo.exists(&target, &source).unwrap_or(false) {
         return Ok("exists".to_string());
     }
 
     // Add connection
-    index.connections.push(PaperConnection {
-        source,
-        target,
-        reason,
-        created_at: Utc::now(),
-    });
+    conn_repo.add(&source, &target, &reason)
+        .map_err(|e| format!("Failed to create connection: {}", e))?;
 
-    save_index(&vault_path, &index)?;
-
+    info!("Connected {} to {} ({})", source, target, reason);
     Ok("connected".to_string())
 }
 
@@ -125,21 +116,23 @@ pub async fn disconnect_papers(
     vault_path: String,
     source: String,
     target: String,
+    state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut index = load_index(&vault_path)?;
+    let db_guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = db_guard.as_ref().ok_or("No vault is open")?;
 
-    let original_len = index.connections.len();
+    let conn_repo = ConnectionRepo::new(&db.conn);
 
-    index.connections.retain(|c| {
-        !((c.source == source && c.target == target) ||
-          (c.source == target && c.target == source))
-    });
+    // Try to remove in both directions
+    let removed1 = conn_repo.remove(&source, &target)
+        .map_err(|e| format!("Failed to remove connection: {}", e))?;
+    let removed2 = conn_repo.remove(&target, &source)
+        .map_err(|e| format!("Failed to remove connection: {}", e))?;
 
-    if index.connections.len() == original_len {
+    if removed1 == 0 && removed2 == 0 {
         return Err("Connection not found".to_string());
     }
 
-    save_index(&vault_path, &index)?;
-
+    info!("Disconnected {} from {}", source, target);
     Ok(())
 }

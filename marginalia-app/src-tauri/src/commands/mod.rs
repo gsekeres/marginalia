@@ -6,3 +6,6 @@ pub mod claude;
 pub mod notes;
 pub mod graph;
 pub mod settings;
+pub mod jobs;
+pub mod diagnostics;
+pub mod projects;

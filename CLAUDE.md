@@ -4,87 +4,103 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Marginalia is an agent-based academic literature management platform. It works with users' existing Claude Code subscriptions to automate:
+Marginalia is a native macOS academic literature management app built with Tauri. It automates:
 - PDF discovery and download from open access sources
-- Text extraction and structured summarization using Claude
+- Text extraction and structured summarization using Claude CLI
 - Citation graph building with Obsidian-compatible wikilinks
+- Notes and highlights on PDFs
 
-**Production Vision**: A hosted platform where researchers can bring their bibliography, and Marginalia handles finding PDFs and generating summaries using their Claude subscription.
+**Architecture**: Tauri app with Rust backend and TypeScript/Alpine.js frontend.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                 Static Frontend (Hugo site)                 │
-│            https://gabesekeres.com/marginalia/                │
+│            TypeScript Frontend (Alpine.js + Vite)           │
+│                      marginalia-app/src/                      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                       Tauri IPC
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    Rust Backend (Tauri)                      │
+│                  marginalia-app/src-tauri/                    │
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │   Commands   │  │   Services   │  │   Adapters   │       │
+│  │ (Tauri IPC)  │  │ (Job Queue)  │  │ (External)   │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                            │                                 │
+│                   ┌────────┴────────┐                       │
+│                   │  SQLite Storage │                       │
+│                   └─────────────────┘                       │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  FastAPI Backend (Render)                   │
-│              https://marginalia-api.onrender.com              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-        ┌──────────┐   ┌──────────────┐  ┌──────────────┐
-        │ BibTeX   │   │ PDF Finder   │  │ Summarizer   │
-        │ Parser   │   │ Agent        │  │ Agent        │
-        └──────────┘   └──────────────┘  └──────────────┘
-                                               │
-                                               ▼
-                                    ┌──────────────────┐
-                                    │ Claude Code CLI  │
-                                    │ (user's OAuth)   │
-                                    └──────────────────┘
+                    ┌──────────────────┐
+                    │ Claude Code CLI  │
+                    │ (user's login)   │
+                    └──────────────────┘
 ```
 
 ## Development Commands
 
 ```bash
-# Install
-pip install -e ".[dev]"
+cd marginalia-app
 
-# Run locally
-python -m agents.api                    # Start server at localhost:8000
+# Install dependencies
+npm install
 
-# CLI commands
-python -m agents.cli status             # Vault statistics
-python -m agents.cli import refs.bib    # Import bibliography
-python -m agents.cli want --all         # Mark all papers as wanted
-python -m agents.cli find --limit 5     # Find PDFs (rate limited)
-python -m agents.cli summarize --limit 5 # Summarize papers
+# Development server (with hot reload)
+npm run tauri dev
+
+# Type checking
+npm run typecheck
+
+# Build for production
+npm run tauri build
 ```
 
-## Key Files
+## Key Directories
 
-- `agents/api.py` - FastAPI endpoints, background job management
-- `agents/pdf_finder.py` - Multi-source PDF search (Unpaywall, Semantic Scholar, NBER)
-- `agents/summarizer.py` - Claude Code CLI integration, JSON parsing to markdown
-- `agents/vault.py` - Index management, paper tracking
-- `app/index.html` - Local development dashboard (Alpine.js + Tailwind)
+### Rust Backend (`src-tauri/src/`)
+- `lib.rs` - Tauri app initialization, command registration
+- `models/` - Data structures (Paper, VaultIndex, etc.)
+- `storage/` - SQLite database layer (schema, repos)
+- `services/` - Business logic (job_manager, summarizer_service)
+- `commands/` - Tauri command handlers
+- `adapters/` - External integrations (Unpaywall, Semantic Scholar, Claude CLI)
+- `utils/` - Utility functions
+
+### TypeScript Frontend (`src/`)
+- `main.ts` - Entry point, Alpine initialization
+- `types.ts` - TypeScript interfaces mirroring Rust models
+- `api/client.ts` - Typed Tauri invoke wrappers
+- `state/` - State management (vault, papers, jobs)
+- `views/` - View helpers (library, paperDetail, network)
+- `components/` - UI components (toaster, jobProgress)
 
 ## Data Flow
 
-1. **Import**: BibTeX → VaultIndex (`.marginalia_index.json`)
+1. **Import**: BibTeX → SQLite database (`.marginalia.sqlite`)
 2. **Mark Wanted**: User selects papers → status = "wanted"
-3. **Find PDF**: PDFFinder searches sources → `vault/papers/[citekey]/paper.pdf`
+3. **Find PDF**: Adapters search sources → `vault/papers/[citekey]/paper.pdf`
 4. **Summarize**: Extract text → Claude CLI → JSON → `vault/papers/[citekey]/summary.md`
 5. **Link**: Wikilinks connect papers → viewable in Obsidian
 
 ## Summarization (Claude Code CLI)
 
-The summarizer shells out to `claude -p` with JSON output:
-- Requires `CLAUDE_CODE_OAUTH_TOKEN` in `.env` (from `claude setup-token`)
-- **Critical**: Do NOT set `ANTHROPIC_API_KEY` - the CLI prefers it over OAuth
-- Pass `env=os.environ.copy()` to subprocess to inherit the token
+The summarizer calls the Claude CLI with JSON output:
+- Requires Claude CLI installed (`brew install anthropics/tap/claude`)
+- User must be logged in (`claude login`)
+- LLM output is validated with `serde_json` parsing
+- On parse failure, raw response is saved to `raw_response.txt`
 
-```python
-result = subprocess.run(
-    ["claude", "-p", prompt, "--output-format", "json"],
-    capture_output=True,
-    env=os.environ.copy(),  # Required for OAuth token
-)
+```rust
+// From src-tauri/src/services/summarizer_service.rs
+Command::new("claude")
+    .args(["--print", "-p", &prompt])
+    .output()
 ```
 
 ## Paper Status Flow
@@ -95,39 +111,50 @@ discovered → wanted → downloaded → summarized
                   → manual queue (with search links)
 ```
 
-## API Endpoints
+## Key Commands (Tauri IPC)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/stats` | Vault statistics |
-| GET | `/api/papers` | List papers (filter by status, search) |
-| POST | `/api/papers/mark-wanted` | Mark papers as wanted |
-| POST | `/api/find-pdfs` | Batch PDF finding job |
-| POST | `/api/papers/{citekey}/find-pdf` | Find single PDF |
-| POST | `/api/summarize` | Batch summarization job |
-| POST | `/api/papers/{citekey}/summarize` | Summarize/re-summarize single |
-| POST | `/api/papers/{citekey}/upload-pdf` | Upload PDF manually |
-| GET | `/api/manual-queue` | Papers needing manual download |
+| Command | File | Description |
+|---------|------|-------------|
+| `open_vault` | vault.rs | Open vault, load database |
+| `get_papers` | papers.rs | List papers with filters |
+| `find_pdf` | pdf_finder.rs | Search and download PDF |
+| `summarize_paper` | claude.rs | Summarize via Claude CLI |
+| `start_job` | jobs.rs | Start background job |
+| `run_diagnostics` | diagnostics.rs | System checks |
 
-## Deployment
+## Storage (SQLite)
 
-**Current Setup**:
-- Frontend: Static HTML on Hugo site (`/static/marginalia/dashboard.html`)
-- Backend: Render deployment (`https://marginalia-api.onrender.com`)
-- Storage: Persistent disk on Render for vault data
+Database file: `.marginalia.sqlite` in vault directory.
 
-**Environment Variables (Render)**:
-- `CLAUDE_CODE_OAUTH_TOKEN` - Required for summarization
-- `UNPAYWALL_EMAIL` - For better rate limits
-- `VAULT_PATH` - Path to vault directory
+Tables:
+- `papers` - Paper metadata, status, paths
+- `citations` - Citation references
+- `related_papers` - From summarization
+- `connections` - Manual graph edges
+- `notes` - Paper notes content
+- `highlights` - PDF highlights
+- `jobs` - Background job queue
 
 ## Extending
 
 ### Adding a PDF source
-Edit `agents/pdf_finder.py`, add method `_try_new_source()`, add to sources list in `find_pdf()`.
+1. Create adapter in `src-tauri/src/adapters/`
+2. Export from `adapters/mod.rs`
+3. Add to source list in `commands/pdf_finder.rs`
 
 ### Modifying summary format
-Edit prompt in `agents/summarizer.py` `_generate_summary()`.
+1. Update prompt in `services/summarizer_service.rs`
+2. Update `ClaudeSummaryOutput` struct
+3. Update `format_to_markdown()` function
 
-### Adding CLI commands
-Edit `agents/cli.py`: add `cmd_<name>` function, add subparser in `main()`.
+### Adding a Tauri command
+1. Add function in appropriate `commands/*.rs` file
+2. Register in `lib.rs` `invoke_handler!` macro
+3. Add TypeScript wrapper in `src/api/client.ts`
+4. Add types in `src/types.ts`
+
+## Logs
+
+Log files: `~/Library/Application Support/com.marginalia.app/logs/marginalia.log`
+
+Uses `tracing` with daily log rotation.

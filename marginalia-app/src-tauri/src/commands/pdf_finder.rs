@@ -9,8 +9,21 @@ use crate::AppState;
 use chrono::Utc;
 use reqwest::Client;
 use std::time::Duration;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tracing::{info, warn};
+
+/// Progress event for PDF search operations
+#[derive(Clone, serde::Serialize)]
+pub struct PdfSearchProgress {
+    /// Citation key being searched
+    pub citekey: String,
+    /// Current progress percentage (0-100)
+    pub progress: i32,
+    /// Current source being searched (e.g., "arxiv", "unpaywall")
+    pub current_source: Option<String>,
+    /// Human-readable status message
+    pub message: String,
+}
 
 #[derive(serde::Serialize)]
 pub struct FindPdfResult {
@@ -21,12 +34,29 @@ pub struct FindPdfResult {
     pub error: Option<String>,
 }
 
+/// Emit a progress event to the frontend
+fn emit_progress(app: &AppHandle, citekey: &str, progress: i32, source: Option<&str>, message: &str) {
+    let event = PdfSearchProgress {
+        citekey: citekey.to_string(),
+        progress,
+        current_source: source.map(|s| s.to_string()),
+        message: message.to_string(),
+    };
+    if let Err(e) = app.emit("pdf:search:progress", &event) {
+        warn!("Failed to emit progress event: {}", e);
+    }
+}
+
 #[tauri::command]
 pub async fn find_pdf(
+    app: AppHandle,
     vault_path: String,
     citekey: String,
     state: State<'_, AppState>,
 ) -> Result<FindPdfResult, String> {
+    // Emit initial progress
+    emit_progress(&app, &citekey, 0, None, "Starting PDF search...");
+
     // Get paper from database
     let paper = {
         let db_guard = state.db.lock().map_err(|e| e.to_string())?;
@@ -55,6 +85,7 @@ pub async fn find_pdf(
     let mut pdf_url: Option<(String, String)> = None;
 
     // 1. Try arXiv first (if DOI contains arXiv or looks like an arXiv ID)
+    emit_progress(&app, &citekey, 10, Some("arxiv"), "Checking arXiv...");
     if let Some(doi) = &paper.doi {
         if let Some(url) = arxiv.find_pdf_by_doi(doi).await {
             pdf_url = Some((url, "arxiv".to_string()));
@@ -63,6 +94,7 @@ pub async fn find_pdf(
 
     // 2. Try Unpaywall (if DOI exists)
     if pdf_url.is_none() {
+        emit_progress(&app, &citekey, 25, Some("unpaywall"), "Checking Unpaywall...");
         if let Some(doi) = &paper.doi {
             if let Some(url) = unpaywall.find_pdf_by_doi(doi).await {
                 pdf_url = Some((url, "unpaywall".to_string()));
@@ -72,6 +104,7 @@ pub async fn find_pdf(
 
     // 3. Try Semantic Scholar by DOI
     if pdf_url.is_none() {
+        emit_progress(&app, &citekey, 40, Some("semantic_scholar"), "Checking Semantic Scholar (DOI)...");
         if let Some(doi) = &paper.doi {
             if let Some(url) = semantic_scholar.find_pdf_by_doi(doi).await {
                 pdf_url = Some((url, "semantic_scholar".to_string()));
@@ -81,6 +114,7 @@ pub async fn find_pdf(
 
     // 4. Try Semantic Scholar by title
     if pdf_url.is_none() {
+        emit_progress(&app, &citekey, 55, Some("semantic_scholar"), "Checking Semantic Scholar (title)...");
         if let Some(url) = semantic_scholar.find_pdf_by_title(&paper.title).await {
             pdf_url = Some((url, "semantic_scholar".to_string()));
         }
@@ -88,6 +122,7 @@ pub async fn find_pdf(
 
     // 5. Try arXiv by title (for preprints that may not have DOIs)
     if pdf_url.is_none() {
+        emit_progress(&app, &citekey, 70, Some("arxiv"), "Checking arXiv (title)...");
         if let Some(url) = arxiv.find_pdf_by_title(&paper.title).await {
             pdf_url = Some((url, "arxiv".to_string()));
         }
@@ -95,6 +130,7 @@ pub async fn find_pdf(
 
     // 6. Try Claude CLI (if available)
     if pdf_url.is_none() && ClaudeCliClient::is_available() {
+        emit_progress(&app, &citekey, 85, Some("claude"), "Asking Claude for PDF URL...");
         if let Some(url) = claude_cli.find_pdf_url(&paper).await {
             pdf_url = Some((url, "claude".to_string()));
         }
@@ -102,6 +138,7 @@ pub async fn find_pdf(
 
     // If we found a URL, download the PDF
     if let Some((url, source)) = pdf_url {
+        emit_progress(&app, &citekey, 90, Some(&source), &format!("Downloading from {}...", source));
         match filesystem.download_pdf(&vault_path, &citekey, &url).await {
             Ok(path) => {
                 // Update paper status in database
@@ -121,6 +158,7 @@ pub async fn find_pdf(
                 }
 
                 info!("Found PDF for {} from {}", citekey, source);
+                emit_progress(&app, &citekey, 100, Some(&source), "PDF downloaded successfully!");
 
                 return Ok(FindPdfResult {
                     success: true,
@@ -137,6 +175,7 @@ pub async fn find_pdf(
     }
 
     // Generate manual search links
+    emit_progress(&app, &citekey, 95, None, "Generating manual search links...");
     let manual_links = generate_search_links(&paper.title, &paper.authors, paper.doi.as_deref());
 
     // Update search attempts in database
@@ -153,6 +192,8 @@ pub async fn find_pdf(
             .update(&updated_paper)
             .map_err(|e| format!("Failed to update paper: {}", e))?;
     }
+
+    emit_progress(&app, &citekey, 100, None, "No open access PDF found");
 
     Ok(FindPdfResult {
         success: false,
